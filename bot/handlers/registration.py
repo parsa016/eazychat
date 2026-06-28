@@ -1,108 +1,125 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
-from aiogram.filters import CommandStart
+from aiogram.types import Message, CallbackQuery, ContentType
 from aiogram.fsm.context import FSMContext
+from aiogram.filters import CommandStart
 
 from bot.database import db
 from bot.states.registration import Registration
 from bot.keyboards.main_kb import (
-    phone_kb, gender_kb, purpose_kb, interests_kb,
-    photos_done_kb, main_menu_kb
+    phone_kb, gender_kb, photos_done_kb, main_menu_kb, purpose_kb, interests_kb
 )
 from bot.data.cities import get_provinces, get_cities, is_valid_province, is_valid_city
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from config import ADMIN_IDS, VERIFICATION_GROUP_ID, SIGNUP_BONUS, PROFILE_COMPLETE_BONUS
+from bot.keyboards.main_kb import verification_admin_kb
 
 router = Router()
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    user = await db.get_user(message.from_user.id)
+    user_id = message.from_user.id
 
-    if user and user['is_verified']:
-        await message.answer(
-            "👋 خوش اومدی به ایزی‌چت!\n"
-            "از منوی زیر یکی رو انتخاب کن:",
-            reply_markup=main_menu_kb()
+    # Check referral
+    referrer_id = None
+    args = message.text.split()
+    if len(args) > 1:
+        ref_code = args[1]
+        referrer = await db.fetchone(
+            "SELECT id FROM users WHERE referral_code = %s AND id != %s",
+            (ref_code, user_id)
         )
+        if referrer:
+            referrer_id = referrer['id']
+
+    user = await db.get_user(user_id)
+
+    if not user:
+        code = await db.create_user(user_id)
+        # Process referral
+        if referrer_id:
+            await db.process_referral(user_id, referrer_id)
+
+        # Signup bonus
+        await db.add_diamonds(user_id, SIGNUP_BONUS, 'signup', 'جایزه ثبت‌نام')
+
+        await message.answer(
+            f"👋 به ربات EazyChat خوش اومدی!\n\n"
+            f"🎁 {SIGNUP_BONUS} الماس هدیه ثبت‌نام دریافت کردی!\n\n"
+            f"لطفاً شماره موبایلت رو ارسال کن:",
+            reply_markup=phone_kb()
+        )
+        await state.set_state(Registration.phone)
         return
 
-    if user and user['registration_step'] != 'start':
-        # Resume registration
-        step = user['registration_step']
-        await resume_registration(message, state, step)
-        return
-
-    # New user
-    await db.create_user(message.from_user.id)
-    await message.answer(
-        "👋 سلام! به ربات دوست‌یابی ایزی‌چت خوش اومدی!\n\n"
-        "برای شروع، لطفاً شماره موبایلت رو با دکمه زیر ارسال کن:",
-        reply_markup=phone_kb()
-    )
-    await state.set_state(Registration.phone)
-
-
-async def resume_registration(message: Message, state: FSMContext, step: str):
-    step_map = {
-        'phone': (Registration.phone, "📱 لطفاً شماره موبایلت رو ارسال کن:", phone_kb()),
-        'name': (Registration.name, "✍️ لطفاً اسمت رو وارد کن:", ReplyKeyboardRemove()),
-        'gender': (Registration.gender, "👤 جنسیتت رو انتخاب کن:", gender_kb()),
-        'age': (Registration.age, "🎂 سنت چنده؟ (عدد وارد کن):", ReplyKeyboardRemove()),
-        'province': (Registration.province, "🏠 استانت رو انتخاب کن:", province_keyboard()),
-        'city': (Registration.city, "🏙️ شهرت رو انتخاب کن:", ReplyKeyboardRemove()),
-        'photos': (Registration.photos, "📸 حداقل ۱ و حداکثر ۳ عکس برای پروفایلت بفرست:", ReplyKeyboardRemove()),
-        'verification': (Registration.verification_video, "🎥 برای احراز هویت یه ویدیو مسیج بفرست و بگو:\n«احراز هویت در ربات ایزی‌چت»", ReplyKeyboardRemove()),
-        'purpose': (Registration.purpose, "🎯 هدفت از اومدن به ربات چیه؟", purpose_kb()),
-        'interests': (Registration.interests, "💡 علاقه‌مندی‌هات رو انتخاب کن (حداکثر ۵ تا):", interests_kb()),
-    }
-    if step in step_map:
-        st, text, kb = step_map[step]
-        await state.set_state(st)
-        if hasattr(kb, 'inline_keyboard'):
-            await message.answer(text, reply_markup=kb)
-        else:
-            await message.answer(text, reply_markup=kb)
-
-
-def province_keyboard():
-    provinces = get_provinces()
-    keyboard = []
-    for i in range(0, len(provinces), 3):
-        row = [KeyboardButton(text=p) for p in provinces[i:i+3]]
-        keyboard.append(row)
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
-
-
-def city_keyboard(province: str):
-    cities = get_cities(province)
-    keyboard = []
-    for i in range(0, len(cities), 3):
-        row = [KeyboardButton(text=c) for c in cities[i:i+3]]
-        keyboard.append(row)
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    # Resume registration based on step
+    step = user.get('registration_step', 'start')
+    if step == 'completed':
+        await state.clear()
+        await message.answer("🏠 منوی اصلی", reply_markup=main_menu_kb())
+        # Update streak
+        await db.update_streak(user_id)
+    elif step == 'phone':
+        await message.answer("📱 لطفاً شماره موبایلت رو ارسال کن:", reply_markup=phone_kb())
+        await state.set_state(Registration.phone)
+    elif step == 'name':
+        await message.answer("✏️ اسمت رو بنویس:")
+        await state.set_state(Registration.name)
+    elif step == 'gender':
+        await message.answer("👤 جنسیتت رو انتخاب کن:", reply_markup=gender_kb())
+        await state.set_state(Registration.gender)
+    elif step == 'age':
+        await message.answer("🎂 سنت رو بنویس (18 تا 60):")
+        await state.set_state(Registration.age)
+    elif step == 'province':
+        provinces = get_provinces()
+        await message.answer(f"🏠 استانت رو بنویس:\n\n{', '.join(provinces)}")
+        await state.set_state(Registration.province)
+    elif step == 'city':
+        user_data = await state.get_data()
+        province = user_data.get('province', user['province'])
+        cities = get_cities(province) if province else []
+        await message.answer(f"🏙️ شهرت رو بنویس:\n\n{', '.join(cities)}")
+        await state.set_state(Registration.city)
+    elif step == 'photos':
+        await message.answer(
+            "📸 عکس‌های پروفایلت رو بفرست (1 تا 3 عکس):",
+            reply_markup=photos_done_kb()
+        )
+        await state.set_state(Registration.photos)
+    elif step == 'verification_video':
+        await message.answer(
+            "🎥 برای احراز هویت یه ویدیو مسیج بفرست و توش بگو:\n"
+            "«احراز هویت در ربات ایزی‌چت»"
+        )
+        await state.set_state(Registration.verification_video)
+    elif step == 'purpose':
+        await message.answer("🎯 هدفت از اومدن تو ربات:", reply_markup=purpose_kb())
+    elif step == 'interests':
+        await message.answer("💡 علاقه‌مندی‌هات رو انتخاب کن (حداکثر 5):", reply_markup=interests_kb())
+    elif step == 'bio':
+        await message.answer("📝 یه بیوگرافی کوتاه بنویس (حداکثر 300 کاراکتر):\nیا /skip بزن.")
+        await state.set_state(Registration.bio)
 
 
 # ============ PHONE ============
 
-@router.message(Registration.phone, F.contact)
-async def process_phone(message: Message, state: FSMContext):
+@router.message(Registration.phone, F.content_type == ContentType.CONTACT)
+async def process_phone_contact(message: Message, state: FSMContext):
     phone = message.contact.phone_number
     await db.update_user(message.from_user.id, phone=phone, registration_step='name')
-    await message.answer(
-        "✅ شماره موبایلت ثبت شد!\n\n"
-        "✍️ حالا اسمت رو وارد کن:",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await message.answer("✅ شماره ثبت شد!\n\n✏️ حالا اسمت رو بنویس:")
     await state.set_state(Registration.name)
 
 
 @router.message(Registration.phone)
-async def process_phone_invalid(message: Message, state: FSMContext):
-    await message.answer(
-        "❌ لطفاً از دکمه «ارسال شماره موبایل» استفاده کن.",
-        reply_markup=phone_kb()
-    )
+async def process_phone_text(message: Message, state: FSMContext):
+    phone = message.text.strip()
+    if not phone.replace("+", "").replace("-", "").isdigit() or len(phone) < 10:
+        await message.answer("❌ شماره نامعتبره! لطفاً شماره درست بفرست یا دکمه رو بزن.", reply_markup=phone_kb())
+        return
+    await db.update_user(message.from_user.id, phone=phone, registration_step='name')
+    await message.answer("✅ شماره ثبت شد!\n\n✏️ حالا اسمت رو بنویس:")
+    await state.set_state(Registration.name)
 
 
 # ============ NAME ============
@@ -111,7 +128,7 @@ async def process_phone_invalid(message: Message, state: FSMContext):
 async def process_name(message: Message, state: FSMContext):
     name = message.text.strip()
     if len(name) < 2 or len(name) > 50:
-        await message.answer("❌ اسم باید بین ۲ تا ۵۰ کاراکتر باشه.")
+        await message.answer("❌ اسم باید بین 2 تا 50 کاراکتر باشه.")
         return
     await db.update_user(message.from_user.id, name=name, registration_step='gender')
     await message.answer("👤 جنسیتت رو انتخاب کن:", reply_markup=gender_kb())
@@ -120,12 +137,11 @@ async def process_name(message: Message, state: FSMContext):
 
 # ============ GENDER ============
 
-@router.callback_query(Registration.gender, F.data.startswith("gender_"))
+@router.callback_query(F.data.startswith("gender_"), Registration.gender)
 async def process_gender(callback: CallbackQuery, state: FSMContext):
-    gender = callback.data.split("_")[1]  # male or female
+    gender = callback.data.replace("gender_", "")
     await db.update_user(callback.from_user.id, gender=gender, registration_step='age')
-    await callback.message.edit_text("✅ جنسیت ثبت شد!")
-    await callback.message.answer("🎂 سنت چنده؟ (یه عدد بین ۱۸ تا ۶۰ وارد کن):")
+    await callback.message.edit_text("🎂 سنت رو بنویس (18 تا 60):")
     await state.set_state(Registration.age)
 
 
@@ -135,14 +151,15 @@ async def process_gender(callback: CallbackQuery, state: FSMContext):
 async def process_age(message: Message, state: FSMContext):
     try:
         age = int(message.text.strip())
-        if age < 18 or age > 60:
-            raise ValueError
     except ValueError:
-        await message.answer("❌ لطفاً یه عدد معتبر بین ۱۸ تا ۶۰ وارد کن.")
+        await message.answer("❌ لطفاً فقط عدد بنویس!")
         return
-
+    if age < 18 or age > 60:
+        await message.answer("❌ سن باید بین 18 تا 60 باشه.")
+        return
     await db.update_user(message.from_user.id, age=age, registration_step='province')
-    await message.answer("🏠 استانت رو انتخاب کن:", reply_markup=province_keyboard())
+    provinces = get_provinces()
+    await message.answer(f"🏠 استانت رو بنویس:\n\n{', '.join(provinces)}")
     await state.set_state(Registration.province)
 
 
@@ -152,12 +169,13 @@ async def process_age(message: Message, state: FSMContext):
 async def process_province(message: Message, state: FSMContext):
     province = message.text.strip()
     if not is_valid_province(province):
-        await message.answer("❌ استان نامعتبره. لطفاً از لیست انتخاب کن.", reply_markup=province_keyboard())
+        provinces = get_provinces()
+        await message.answer(f"❌ استان نامعتبر!\n\n{', '.join(provinces)}")
         return
-
-    await state.update_data(province=province)
     await db.update_user(message.from_user.id, province=province, registration_step='city')
-    await message.answer(f"🏙️ شهرت رو از استان {province} انتخاب کن:", reply_markup=city_keyboard(province))
+    await state.update_data(province=province)
+    cities = get_cities(province)
+    await message.answer(f"🏙️ شهرت رو بنویس:\n\n{', '.join(cities)}")
     await state.set_state(Registration.city)
 
 
@@ -167,133 +185,132 @@ async def process_province(message: Message, state: FSMContext):
 async def process_city(message: Message, state: FSMContext):
     city = message.text.strip()
     data = await state.get_data()
-    province = data.get('province', '')
-
+    province = data.get('province')
+    if not province:
+        user = await db.get_user(message.from_user.id)
+        province = user['province']
     if not is_valid_city(province, city):
-        await message.answer("❌ شهر نامعتبره. لطفاً از لیست انتخاب کن.", reply_markup=city_keyboard(province))
+        cities = get_cities(province)
+        await message.answer(f"❌ شهر نامعتبر!\n\n{', '.join(cities)}")
         return
-
     await db.update_user(message.from_user.id, city=city, registration_step='photos')
-    await state.update_data(photo_count=0)
     await message.answer(
-        "📸 حالا عکس‌های پروفایلت رو بفرست.\n"
-        "حداقل ۱ و حداکثر ۳ عکس.\n\n"
-        "بعد از ارسال عکس‌ها، دکمه «تمام» رو بزن.",
-        reply_markup=ReplyKeyboardRemove()
+        "📸 عکس‌های پروفایلت رو بفرست (حداقل 1، حداکثر 3):\n"
+        "بعد از ارسال، دکمه «تمام» رو بزن.",
+        reply_markup=photos_done_kb()
     )
+    await state.update_data(photos_count=0)
     await state.set_state(Registration.photos)
 
 
 # ============ PHOTOS ============
 
-@router.message(Registration.photos, F.photo)
+@router.message(Registration.photos, F.content_type == ContentType.PHOTO)
 async def process_photo(message: Message, state: FSMContext):
     data = await state.get_data()
-    photo_count = data.get('photo_count', 0)
-
-    if photo_count >= 3:
-        await message.answer("❌ حداکثر ۳ عکس می‌تونی بفرستی. دکمه «تمام» رو بزن.")
+    count = data.get('photos_count', 0)
+    if count >= 3:
+        await message.answer("❌ حداکثر 3 عکس می‌تونی بفرستی! دکمه «تمام» رو بزن.")
         return
-
     file_id = message.photo[-1].file_id
-    photo_count += 1
-    await db.add_photo(message.from_user.id, file_id, photo_count)
-    await state.update_data(photo_count=photo_count)
-
-    if photo_count < 3:
-        await message.answer(
-            f"✅ عکس {photo_count} ثبت شد! ({photo_count}/3)\n"
-            f"می‌تونی عکس بعدی رو بفرستی یا «تمام» رو بزن.",
-            reply_markup=photos_done_kb()
-        )
+    await db.add_photo(message.from_user.id, file_id, count + 1)
+    await state.update_data(photos_count=count + 1)
+    remaining = 3 - (count + 1)
+    if remaining > 0:
+        await message.answer(f"✅ عکس {count + 1} ذخیره شد! (می‌تونی {remaining} عکس دیگه بفرستی یا «تمام» بزن)")
     else:
-        await message.answer(
-            "✅ عکس ۳ ثبت شد! حداکثر عکس رسید.\n"
-            "دکمه «تمام» رو بزن.",
-            reply_markup=photos_done_kb()
-        )
+        await message.answer("✅ 3 عکس ذخیره شد! حالا دکمه «تمام» رو بزن.")
 
 
-@router.callback_query(Registration.photos, F.data == "photos_done")
-async def process_photos_done(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "photos_done")
+async def photos_done(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    photo_count = data.get('photo_count', 0)
-
-    if photo_count < 1:
-        await callback.answer("❌ حداقل ۱ عکس باید بفرستی!", show_alert=True)
+    count = data.get('photos_count', 0)
+    if count == 0:
+        await callback.answer("❌ حداقل 1 عکس لازمه!", show_alert=True)
         return
-
-    await db.update_user(callback.from_user.id, registration_step='verification')
-    await callback.message.edit_text("✅ عکس‌ها ثبت شدن!")
-    await callback.message.answer(
-        "🎥 مرحله احراز هویت:\n\n"
-        "لطفاً یه ویدیو مسیج (دایره‌ای) بفرست و توش بگو:\n"
+    await db.update_user(callback.from_user.id, registration_step='verification_video')
+    await callback.message.edit_text(
+        "🎥 برای احراز هویت یه ویدیو مسیج بفرست و توش بگو:\n\n"
         "«احراز هویت در ربات ایزی‌چت»\n\n"
-        "⚠️ توجه: عکس اول پروفایلت باید با چهره‌ات در ویدیو مطابقت داشته باشه."
+        "⚠️ صورتت باید مشخص باشه و شبیه عکس پروفایلت باشه."
     )
     await state.set_state(Registration.verification_video)
 
 
-@router.message(Registration.photos)
-async def process_photos_invalid(message: Message, state: FSMContext):
-    await message.answer("❌ لطفاً عکس بفرست یا دکمه «تمام» رو بزن.", reply_markup=photos_done_kb())
-
-
 # ============ VERIFICATION VIDEO ============
 
-@router.message(Registration.verification_video, F.video_note)
+@router.message(Registration.verification_video, F.content_type.in_({ContentType.VIDEO, ContentType.VIDEO_NOTE}))
 async def process_verification_video(message: Message, state: FSMContext):
-    video_file_id = message.video_note.file_id
-    await db.create_verification(message.from_user.id, video_file_id)
-    await db.update_user(message.from_user.id, registration_step='waiting_verification')
+    if message.content_type == ContentType.VIDEO:
+        file_id = message.video.file_id
+    else:
+        file_id = message.video_note.file_id
+
+    user_id = message.from_user.id
+    verification_id = await db.create_verification(user_id, file_id)
+    await db.update_user(user_id, registration_step='waiting_verification')
+
+    # Send to verification group or admins
+    user = await db.get_user(user_id)
+    photos = await db.get_photos(user_id)
+    text = (
+        f"🔍 درخواست احراز هویت جدید:\n\n"
+        f"👤 {user['name']}\n"
+        f"🆔 ID: {user_id}\n"
+        f"🎂 سن: {user['age']}\n"
+        f"📍 {user['province']}، {user['city']}"
+    )
+
+    if VERIFICATION_GROUP_ID:
+        # Send to group
+        if photos:
+            await message.bot.send_photo(
+                VERIFICATION_GROUP_ID, photos[0]['file_id'],
+                caption=text
+            )
+        if message.content_type == ContentType.VIDEO:
+            await message.bot.send_video(
+                VERIFICATION_GROUP_ID, file_id,
+                caption="ویدیو احراز هویت 👆",
+                reply_markup=verification_admin_kb(user_id, verification_id)
+            )
+        else:
+            await message.bot.send_video_note(VERIFICATION_GROUP_ID, file_id)
+            await message.bot.send_message(
+                VERIFICATION_GROUP_ID,
+                "ویدیو احراز هویت 👆",
+                reply_markup=verification_admin_kb(user_id, verification_id)
+            )
+    else:
+        # Send to admins directly
+        for admin_id in ADMIN_IDS:
+            try:
+                if photos:
+                    await message.bot.send_photo(admin_id, photos[0]['file_id'], caption=text)
+                if message.content_type == ContentType.VIDEO:
+                    await message.bot.send_video(
+                        admin_id, file_id,
+                        caption="ویدیو احراز هویت 👆",
+                        reply_markup=verification_admin_kb(user_id, verification_id)
+                    )
+                else:
+                    await message.bot.send_video_note(admin_id, file_id)
+                    await message.bot.send_message(
+                        admin_id,
+                        "ویدیو احراز هویت 👆",
+                        reply_markup=verification_admin_kb(user_id, verification_id)
+                    )
+            except Exception:
+                pass
 
     await message.answer(
-        "✅ ویدیو احراز هویت ارسال شد!\n\n"
-        "⏳ منتظر بررسی ادمین باش. بعد از تأیید بهت اطلاع داده میشه."
+        "✅ ویدیو احراز هویتت ارسال شد!\n"
+        "⏳ منتظر بررسی ادمین باش. بعد از تأیید بهت اطلاع میدیم."
     )
     await state.clear()
 
-    # Notify admins
-    from config import ADMIN_IDS
-    from bot.keyboards.main_kb import verification_admin_kb
-
-    user = await db.get_user(message.from_user.id)
-    photos = await db.get_photos(message.from_user.id)
-
-    for admin_id in ADMIN_IDS:
-        try:
-            verifications = await db.fetchall(
-                "SELECT id FROM verifications WHERE user_id = %s ORDER BY id DESC LIMIT 1",
-                (message.from_user.id,)
-            )
-            v_id = verifications[0]['id'] if verifications else 0
-
-            admin_text = (
-                f"🔔 درخواست احراز هویت جدید:\n\n"
-                f"👤 نام: {user['name']}\n"
-                f"🆔 آیدی: {message.from_user.id}\n"
-                f"📱 شماره: {user['phone']}\n"
-            )
-            await message.bot.send_message(admin_id, admin_text)
-
-            # Send first profile photo
-            if photos:
-                await message.bot.send_photo(admin_id, photos[0]['file_id'], caption="عکس اول پروفایل:")
-
-            # Send verification video
-            await message.bot.send_video_note(admin_id, video_file_id)
-            await message.bot.send_message(
-                admin_id,
-                "آیا تأیید می‌کنید؟",
-                reply_markup=verification_admin_kb(message.from_user.id, v_id)
-            )
-        except Exception:
-            pass
-
 
 @router.message(Registration.verification_video)
-async def process_verification_invalid(message: Message, state: FSMContext):
-    await message.answer(
-        "❌ لطفاً یه ویدیو مسیج (دایره‌ای) بفرست.\n"
-        "از دکمه ویدیو مسیج تلگرام استفاده کن."
-    )
+async def process_verification_invalid(message: Message):
+    await message.answer("❌ لطفاً یه ویدیو مسیج (Video Note) یا ویدیو بفرست!")

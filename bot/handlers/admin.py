@@ -13,28 +13,29 @@ async def admin_panel(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
 
-    total_users = await db.fetchone("SELECT COUNT(*) as cnt FROM users")
-    verified_users = await db.fetchone("SELECT COUNT(*) as cnt FROM users WHERE is_verified = 1")
-    pending_verifications = await db.fetchone(
-        "SELECT COUNT(*) as cnt FROM verifications WHERE status = 'pending'"
-    )
-    total_matches = await db.fetchone("SELECT COUNT(*) as cnt FROM matches")
-    premium_users = await db.fetchone("SELECT COUNT(*) as cnt FROM users WHERE is_premium = 1")
+    total = await db.fetchone("SELECT COUNT(*) as cnt FROM users")
+    verified = await db.fetchone("SELECT COUNT(*) as cnt FROM users WHERE is_verified = 1")
+    pending = await db.fetchone("SELECT COUNT(*) as cnt FROM verifications WHERE status = 'pending'")
+    matches = await db.fetchone("SELECT COUNT(*) as cnt FROM matches WHERE is_active = 1")
+    premium = await db.fetchone("SELECT COUNT(*) as cnt FROM users WHERE is_premium = 1")
 
     text = (
-        "🔧 پنل ادمین:\n\n"
-        f"👥 کل کاربران: {total_users['cnt']}\n"
-        f"✅ تأیید شده: {verified_users['cnt']}\n"
-        f"⏳ در انتظار تأیید: {pending_verifications['cnt']}\n"
-        f"💑 جفت‌ها: {total_matches['cnt']}\n"
-        f"⭐ پرمیوم: {premium_users['cnt']}\n\n"
-        "دستورات:\n"
-        "/pending - مشاهده درخواست‌های احراز هویت\n"
-        "/ban <user_id> - بن کردن کاربر\n"
-        "/unban <user_id> - آنبن کردن\n"
-        "/addcoins <user_id> <amount> - اضافه کردن سکه\n"
-        "/setpremium <user_id> <days> - فعال‌سازی پرمیوم\n"
-        "/broadcast <message> - پیام همگانی\n"
+        f"⚙️ پنل ادمین\n"
+        f"━━━━━━━━━━━━\n"
+        f"👥 کل کاربران: {total['cnt']}\n"
+        f"✅ تأیید شده: {verified['cnt']}\n"
+        f"⏳ در انتظار تأیید: {pending['cnt']}\n"
+        f"💑 جفت‌شده‌ها: {matches['cnt']}\n"
+        f"⭐ پرمیوم: {premium['cnt']}\n"
+        f"\n━━━━━━━━━━━━\n"
+        f"دستورات:\n"
+        f"/pending - درخواست‌های احراز هویت\n"
+        f"/ban <user_id> - بن کردن\n"
+        f"/unban <user_id> - آنبن\n"
+        f"/adddiamonds <user_id> <amount> - اضافه کردن الماس\n"
+        f"/setpremium <user_id> <days> - فعال‌سازی پرمیوم\n"
+        f"/broadcast <message> - پیام همگانی\n"
+        f"/reply <user_id> <message> - پاسخ به کاربر\n"
     )
     await message.answer(text)
 
@@ -45,119 +46,140 @@ async def view_pending(message: Message):
         return
 
     pending = await db.get_pending_verifications()
-
     if not pending:
-        await message.answer("✅ درخواست احراز هویت در انتظاری وجود نداره!")
+        await message.answer("✅ هیچ درخواست منتظری نیست!")
         return
 
     await message.answer(f"⏳ {len(pending)} درخواست در انتظار:")
-
     from bot.keyboards.main_kb import verification_admin_kb
-
-    for v in pending:
+    for v in pending[:10]:
         user = await db.get_user(v['user_id'])
         photos = await db.get_photos(v['user_id'])
-
-        text = (
-            f"👤 نام: {user['name']}\n"
-            f"🆔 آیدی: {v['user_id']}\n"
-            f"📱 شماره: {user['phone']}\n"
-        )
-        await message.answer(text)
+        text = f"👤 {user['name']} | ID: {v['user_id']}\n🎂 {user['age']} | 📍 {user['province']}"
 
         if photos:
-            await message.answer_photo(photos[0]['file_id'], caption="عکس اول پروفایل:")
-
-        await message.bot.send_video_note(message.chat.id, v['video_file_id'])
-        await message.answer(
-            "تأیید/رد؟",
-            reply_markup=verification_admin_kb(v['user_id'], v['id'])
-        )
+            await message.answer_photo(photos[0]['file_id'], caption=text)
+        try:
+            await message.bot.send_video(
+                message.chat.id, v['video_file_id'],
+                caption="ویدیو احراز هویت 👆",
+                reply_markup=verification_admin_kb(v['user_id'], v['id'])
+            )
+        except Exception:
+            await message.answer(
+                f"ویدیو (video_note)\nکاربر: {v['user_id']}",
+                reply_markup=verification_admin_kb(v['user_id'], v['id'])
+            )
 
 
 @router.message(Command("ban"))
 async def ban_user(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
-
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("❌ فرمت: /ban <user_id>")
+        return
     try:
-        parts = message.text.split()
-        target_id = int(parts[1])
-        await db.update_user(target_id, is_banned=1, is_active=0)
-        await message.answer(f"✅ کاربر {target_id} بن شد.")
-    except (IndexError, ValueError):
-        await message.answer("❌ استفاده: /ban <user_id>")
+        user_id = int(args[1])
+    except ValueError:
+        await message.answer("❌ آیدی نامعتبر!")
+        return
+    await db.update_user(user_id, is_banned=1, is_active=0)
+    await message.answer(f"✅ کاربر {user_id} بن شد.")
 
 
 @router.message(Command("unban"))
 async def unban_user(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
-
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("❌ فرمت: /unban <user_id>")
+        return
     try:
-        parts = message.text.split()
-        target_id = int(parts[1])
-        await db.update_user(target_id, is_banned=0, is_active=1)
-        await message.answer(f"✅ کاربر {target_id} آنبن شد.")
-    except (IndexError, ValueError):
-        await message.answer("❌ استفاده: /unban <user_id>")
+        user_id = int(args[1])
+    except ValueError:
+        await message.answer("❌ آیدی نامعتبر!")
+        return
+    await db.update_user(user_id, is_banned=0, is_active=1)
+    await message.answer(f"✅ کاربر {user_id} آنبن شد.")
 
 
-@router.message(Command("addcoins"))
-async def add_coins_cmd(message: Message):
+@router.message(Command("adddiamonds"))
+async def add_diamonds(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
-
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("❌ فرمت: /adddiamonds <user_id> <amount>")
+        return
     try:
-        parts = message.text.split()
-        target_id = int(parts[1])
-        amount = int(parts[2])
-        await db.add_coins(target_id, amount, 'gift', 'هدیه ادمین')
-        await message.answer(f"✅ {amount} سکه به کاربر {target_id} اضافه شد.")
-    except (IndexError, ValueError):
-        await message.answer("❌ استفاده: /addcoins <user_id> <amount>")
+        user_id = int(args[1])
+        amount = int(args[2])
+    except ValueError:
+        await message.answer("❌ مقادیر نامعتبر!")
+        return
+    await db.add_diamonds(user_id, amount, 'gift', f'هدیه ادمین')
+    await message.answer(f"✅ {amount} الماس به {user_id} اضافه شد.")
 
 
 @router.message(Command("setpremium"))
-async def set_premium_cmd(message: Message):
+async def set_premium(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
-
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("❌ فرمت: /setpremium <user_id> <days>")
+        return
     try:
-        parts = message.text.split()
-        target_id = int(parts[1])
-        days = int(parts[2])
-
-        await db.execute(
-            "UPDATE users SET is_premium = 1, "
-            "premium_expires_at = DATE_ADD(NOW(), INTERVAL %s DAY) "
-            "WHERE id = %s",
-            (days, target_id)
-        )
-        await message.answer(f"✅ اشتراک پرمیوم {days} روزه برای کاربر {target_id} فعال شد.")
-    except (IndexError, ValueError):
-        await message.answer("❌ استفاده: /setpremium <user_id> <days>")
+        user_id = int(args[1])
+        days = int(args[2])
+    except ValueError:
+        await message.answer("❌ مقادیر نامعتبر!")
+        return
+    from datetime import datetime, timedelta
+    expires = datetime.now() + timedelta(days=days)
+    await db.update_user(user_id, is_premium=1, premium_expires_at=expires)
+    await message.answer(f"✅ پرمیوم {days} روزه برای {user_id} فعال شد.")
 
 
 @router.message(Command("broadcast"))
-async def broadcast_cmd(message: Message):
+async def broadcast(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
-
-    text = message.text.replace("/broadcast ", "", 1).strip()
-    if not text:
-        await message.answer("❌ استفاده: /broadcast <message>")
+    text = message.text.replace("/broadcast ", "", 1)
+    if not text or text == "/broadcast":
+        await message.answer("❌ فرمت: /broadcast <message>")
         return
 
     users = await db.fetchall("SELECT id FROM users WHERE is_active = 1")
     sent = 0
-    failed = 0
-
     for user in users:
         try:
-            await message.bot.send_message(user['id'], f"📢 پیام از ادمین:\n\n{text}")
+            await message.bot.send_message(user['id'], f"📢 {text}")
             sent += 1
         except Exception:
-            failed += 1
+            pass
+    await message.answer(f"✅ پیام به {sent} نفر ارسال شد.")
 
-    await message.answer(f"✅ پیام ارسال شد!\n📨 موفق: {sent}\n❌ ناموفق: {failed}")
+
+@router.message(Command("reply"))
+async def reply_to_user(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split(maxsplit=2)
+    if len(args) < 3:
+        await message.answer("❌ فرمت: /reply <user_id> <message>")
+        return
+    try:
+        user_id = int(args[1])
+    except ValueError:
+        await message.answer("❌ آیدی نامعتبر!")
+        return
+    reply_text = args[2]
+    try:
+        await message.bot.send_message(user_id, f"📞 پاسخ پشتیبانی:\n\n{reply_text}")
+        await message.answer("✅ پاسخ ارسال شد.")
+    except Exception:
+        await message.answer("❌ ارسال ناموفق! شاید کاربر ربات رو بلاک کرده.")

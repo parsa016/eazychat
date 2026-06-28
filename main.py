@@ -7,7 +7,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 from config import BOT_TOKEN, PROXY_URL
 from bot.database import db
-from bot.handlers import registration, verification, profile_completion, search, direct_message, matches, profile, admin
+from bot.handlers import registration, verification, profile_completion, search, matches, profile, admin, referral
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,9 +41,9 @@ async def main():
     dp.include_router(verification.router)
     dp.include_router(profile_completion.router)
     dp.include_router(search.router)
-    dp.include_router(direct_message.router)
     dp.include_router(matches.router)
     dp.include_router(profile.router)
+    dp.include_router(referral.router)
     dp.include_router(admin.router)
 
     # Startup/shutdown hooks

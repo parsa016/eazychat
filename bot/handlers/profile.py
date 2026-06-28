@@ -3,10 +3,13 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from bot.database import db
-from bot.keyboards.main_kb import my_profile_kb, main_menu_kb
+from bot.states.registration import Profile
+from bot.keyboards.main_kb import my_profile_kb, main_menu_kb, diamonds_kb
 
 router = Router()
 
+
+# ============ VIEW PROFILE ============
 
 @router.message(F.text == "👤 پروفایل من")
 async def view_profile(message: Message):
@@ -14,7 +17,7 @@ async def view_profile(message: Message):
     user = await db.get_user(user_id)
 
     if not user:
-        await message.answer("❌ ابتدا /start رو بزن.")
+        await message.answer("❌ ابتدا ثبت‌نام کن! /start")
         return
 
     photos = await db.get_photos(user_id)
@@ -29,23 +32,33 @@ async def view_profile(message: Message):
         'travel': '✈️ سفر', 'cooking': '🍳 آشپزی', 'photography': '📸 عکاسی'
     }
 
-    verified_text = "✅ تأیید شده" if user['is_verified'] else "⏳ در انتظار تأیید"
-    premium_text = "⭐ پرمیوم" if user['is_premium'] else "رایگان"
+    # Stats
+    views_r, likes_r, attract_pct = await db.get_attractiveness(user_id)
+    views_s, likes_s, picky_pct = await db.get_pickiness(user_id)
 
     text = (
-        f"👤 پروفایل من:\n\n"
-        f"📛 نام: {user['name']}\n"
+        f"👤 پروفایل من\n"
+        f"━━━━━━━━━━━━\n"
+        f"📛 اسم: {user['name']}\n"
         f"{gender_text} | 🎂 {user['age']} ساله\n"
         f"📍 {user['province']}، {user['city']}\n"
-        f"🎯 هدف: {purpose_map.get(user['purpose'], 'تعیین نشده')}\n"
-        f"💰 سکه: {user['coins']}\n"
-        f"📋 وضعیت: {verified_text}\n"
-        f"💎 اشتراک: {premium_text}\n"
+        f"🎯 {purpose_map.get(user.get('purpose'), '—')}\n"
     )
+    if user.get('bio'):
+        text += f"📝 {user['bio']}\n"
 
     if interests:
         interests_text = " | ".join(interest_map.get(i, i) for i in interests)
-        text += f"💡 علاقه‌مندی‌ها: {interests_text}\n"
+        text += f"💡 {interests_text}\n"
+
+    text += (
+        f"\n━━━━━━━━━━━━\n"
+        f"💎 الماس: {user['diamonds']}\n"
+        f"⭐ پرمیوم: {'✅ فعال' if user['is_premium'] else '❌ غیرفعال'}\n"
+        f"\n📊 آمار:\n"
+        f"✨ جذابیت: از {views_r} نفری که دیدنت، {likes_r} نفر ({attract_pct}%) لایکت کردن\n"
+        f"🎯 سخت‌پسندی: از {views_s} نفر که دیدی، {likes_s} نفر ({picky_pct}%) رو لایک کردی\n"
+    )
 
     if photos:
         await message.answer_photo(
@@ -57,62 +70,189 @@ async def view_profile(message: Message):
         await message.answer(text, reply_markup=my_profile_kb())
 
 
-@router.message(F.text == "💰 سکه‌ها")
-async def view_coins(message: Message):
-    user = await db.get_user(message.from_user.id)
-    if not user:
-        return
+# ============ EDIT NAME ============
 
-    await message.answer(
-        f"💰 موجودی سکه: {user['coins']}\n\n"
-        f"📌 نرخ‌ها:\n"
-        f"• ارسال دایرکت: 2 سکه\n\n"
-        f"برای خرید سکه با پشتیبانی تماس بگیر."
+@router.callback_query(F.data == "edit_name")
+async def start_edit_name(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_name)
+    await callback.message.answer("✏️ اسم جدیدت رو بنویس:")
+    await callback.answer()
+
+
+@router.message(Profile.editing_name)
+async def process_edit_name(message: Message, state: FSMContext):
+    name = message.text.strip()
+    if len(name) < 2 or len(name) > 50:
+        await message.answer("❌ اسم باید بین 2 تا 50 کاراکتر باشه.")
+        return
+    await db.update_user(message.from_user.id, name=name)
+    await message.answer(f"✅ اسمت تغییر کرد به: {name}", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+# ============ EDIT BIO ============
+
+@router.callback_query(F.data == "edit_bio")
+async def start_edit_bio(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_bio)
+    await callback.message.answer("📝 بیو جدیدت رو بنویس (حداکثر 300 کاراکتر):\nیا /skip برای حذف بیو")
+    await callback.answer()
+
+
+@router.message(Profile.editing_bio)
+async def process_edit_bio(message: Message, state: FSMContext):
+    if message.text == "/skip":
+        await db.update_user(message.from_user.id, bio=None)
+        await message.answer("✅ بیو حذف شد!", reply_markup=main_menu_kb())
+    else:
+        bio = message.text.strip()
+        if len(bio) > 300:
+            await message.answer("❌ بیو حداکثر 300 کاراکتر باشه!")
+            return
+        await db.update_user(message.from_user.id, bio=bio)
+        await message.answer("✅ بیو آپدیت شد!", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+# ============ EDIT PHOTOS ============
+
+@router.callback_query(F.data == "edit_photos")
+async def start_edit_photos(callback: CallbackQuery):
+    await callback.answer(
+        "برای تغییر عکس‌ها، عکس جدید بفرست.\nقبلی‌ها حذف میشن.",
+        show_alert=True
+    )
+    # TODO: implement full photo edit flow
+
+
+# ============ EDIT PURPOSE ============
+
+@router.callback_query(F.data == "edit_purpose")
+async def start_edit_purpose(callback: CallbackQuery):
+    from bot.keyboards.main_kb import purpose_kb
+    await callback.message.answer("🎯 هدف جدیدت رو انتخاب کن:", reply_markup=purpose_kb())
+    await callback.answer()
+
+
+# ============ EDIT INTERESTS ============
+
+@router.callback_query(F.data == "edit_interests")
+async def start_edit_interests(callback: CallbackQuery):
+    from bot.keyboards.main_kb import interests_kb
+    await callback.message.answer(
+        "💡 علاقه‌مندی‌های جدیدت رو انتخاب کن:",
+        reply_markup=interests_kb()
+    )
+    await callback.answer()
+
+
+# ============ DIAMONDS ============
+
+@router.message(F.text == "💎 الماس‌ها")
+async def view_diamonds(message: Message):
+    user_id = message.from_user.id
+    user = await db.get_user(user_id)
+    streak = user['streak_days']
+
+    text = (
+        f"💎 الماس‌های من: {user['diamonds']}\n"
+        f"🔥 روزهای متوالی: {streak} روز\n\n"
+        f"━━━━━━━━━━━━\n"
+        f"🎁 جایزه 3 روز: {'✅ دریافت شده' if user['streak_3_claimed'] else '❌ ' + ('آماده!' if streak >= 3 else f'{3-streak} روز مونده')}\n"
+        f"🎁 جایزه 7 روز: {'✅ دریافت شده' if user['streak_7_claimed'] else '❌ ' + ('آماده!' if streak >= 7 else f'{7-streak} روز مونده')}\n"
+        f"🎁 جایزه 30 روز: {'✅ دریافت شده' if user['streak_30_claimed'] else '❌ ' + ('آماده!' if streak >= 30 else f'{30-streak} روز مونده')}\n"
     )
 
+    await message.answer(text, reply_markup=diamonds_kb())
+
+
+# ============ DAILY DIAMOND ============
+
+@router.callback_query(F.data == "daily_diamond")
+async def claim_daily(callback: CallbackQuery):
+    success = await db.claim_daily_diamond(callback.from_user.id)
+    if success:
+        await callback.answer("🎁 1 الماس رایگان دریافت کردی!", show_alert=True)
+    else:
+        await callback.answer("❌ امروز قبلاً دریافت کردی! فردا بیا.", show_alert=True)
+
+
+# ============ STREAK REWARDS ============
+
+@router.callback_query(F.data.startswith("streak_"))
+async def claim_streak(callback: CallbackQuery):
+    streak_type = callback.data.replace("streak_", "")
+    success, msg = await db.claim_streak_reward(callback.from_user.id, streak_type)
+    await callback.answer(msg, show_alert=True)
+
+
+# ============ PREMIUM ============
 
 @router.message(F.text == "⭐ اشتراک پرمیوم")
 async def view_premium(message: Message):
     user = await db.get_user(message.from_user.id)
-    if not user:
-        return
+    status = "✅ فعال" if user['is_premium'] else "❌ غیرفعال"
+    text = (
+        f"⭐ اشتراک پرمیوم: {status}\n\n"
+        f"مزایای پرمیوم:\n"
+        f"• جستجوی نامحدود (بدون محدودیت روزانه)\n"
+        f"• لایک نامحدود\n"
+        f"• دکمه بازگشت در اکسپلور\n\n"
+        f"برای خرید اشتراک با پشتیبانی تماس بگیر."
+    )
+    await message.answer(text)
 
-    if user['is_premium']:
-        await message.answer(
-            "⭐ تو اشتراک پرمیوم داری!\n\n"
-            "مزایا:\n"
-            "• مشاهده نامحدود پروفایل\n"
-            "• لایک نامحدود\n"
-            "• مشاهده کسایی که لایکت کردن"
-        )
-    else:
-        await message.answer(
-            "⭐ اشتراک پرمیوم:\n\n"
-            "مزایا:\n"
-            "• مشاهده نامحدود پروفایل\n"
-            "• لایک نامحدود\n"
-            "• مشاهده کسایی که لایکت کردن\n\n"
-            "📌 پلن‌ها:\n"
-            "• هفتگی: تماس با پشتیبانی\n"
-            "• ماهانه: تماس با پشتیبانی\n"
-            "• ۳ ماهه: تماس با پشتیبانی\n\n"
-            "برای خرید با پشتیبانی تماس بگیر."
-        )
 
+# ============ SUPPORT ============
 
 @router.message(F.text == "📞 پشتیبانی")
-async def support(message: Message):
+async def support_start(message: Message, state: FSMContext):
+    from bot.states.registration import Support
     await message.answer(
         "📞 پشتیبانی ایزی‌چت:\n\n"
-        "برای ارتباط با پشتیبانی:\n"
         "• مشکل فنی\n"
         "• گزارش تخلف\n"
         "• خرید سکه و اشتراک\n\n"
-        "پیامت رو اینجا بنویس و ادمین بهت جواب میده."
+        "پیامت رو اینجا بنویس و ادمین بهت جواب میده.\n"
+        "برای بازگشت /cancel بزن."
     )
+    await state.set_state(Support.waiting_message)
 
+
+from bot.states.registration import Support
+
+
+@router.message(Support.waiting_message)
+async def process_support_message(message: Message, state: FSMContext):
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("🏠 بازگشت به منو", reply_markup=main_menu_kb())
+        return
+
+    user_id = message.from_user.id
+    user = await db.get_user(user_id)
+    from config import ADMIN_IDS
+
+    # Forward to all admins
+    for admin_id in ADMIN_IDS:
+        try:
+            await message.bot.send_message(
+                admin_id,
+                f"📞 پیام پشتیبانی جدید:\n\n"
+                f"👤 {user['name']} (ID: {user_id})\n"
+                f"📝 {message.text}\n\n"
+                f"برای پاسخ:\n/reply {user_id} متن پاسخ"
+            )
+        except Exception:
+            pass
+
+    await message.answer("✅ پیامت ارسال شد! ادمین بهت جواب میده.", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+# ============ BACK TO MENU ============
 
 @router.message(F.text == "🏠 بازگشت به منو")
 async def back_to_menu(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("🏠 منوی اصلی:", reply_markup=main_menu_kb())
+    await message.answer("🏠 منوی اصلی", reply_markup=main_menu_kb())

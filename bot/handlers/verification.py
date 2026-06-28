@@ -1,68 +1,93 @@
 from aiogram import Router, F
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 
 from bot.database import db
-from bot.keyboards.main_kb import purpose_kb
-from bot.states.registration import Registration
-from config import ADMIN_IDS
+from bot.states.registration import Admin
+from bot.keyboards.main_kb import verification_admin_kb, purpose_kb
+from config import ADMIN_IDS, VERIFICATION_GROUP_ID
 
 router = Router()
 
 
 @router.callback_query(F.data.startswith("verify_approve_"))
-async def verify_approve(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ شما ادمین نیستید!", show_alert=True)
-        return
-
+async def approve_verification(callback: CallbackQuery):
     parts = callback.data.split("_")
     verification_id = int(parts[2])
     user_id = int(parts[3])
 
+    # Check admin
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ فقط ادمین‌ها دسترسی دارن!", show_alert=True)
+        return
+
     await db.update_verification(verification_id, 'approved', callback.from_user.id)
     await db.update_user(user_id, is_verified=1, registration_step='purpose')
 
-    await callback.message.edit_text("✅ احراز هویت تأیید شد!")
+    try:
+        await callback.message.edit_caption(
+            caption=f"✅ تأیید شد توسط {callback.from_user.full_name}"
+        )
+    except Exception:
+        await callback.message.edit_text(
+            f"✅ تأیید شد توسط {callback.from_user.full_name}"
+        )
 
     # Notify user
     try:
         await callback.bot.send_message(
             user_id,
-            "🎉 احراز هویتت تأیید شد!\n\n"
-            "حالا بیا پروفایلت رو تکمیل کنیم.\n"
-            "🎯 هدفت از اومدن به ربات چیه؟",
+            "🎉 احراز هویتت تأیید شد!\n\nحالا هدفت از اومدن تو ربات رو انتخاب کن:",
             reply_markup=purpose_kb()
         )
     except Exception:
         pass
 
+    await callback.answer("✅ تأیید شد!")
+
 
 @router.callback_query(F.data.startswith("verify_reject_"))
-async def verify_reject(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ شما ادمین نیستید!", show_alert=True)
-        return
-
+async def reject_verification(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split("_")
     verification_id = int(parts[2])
     user_id = int(parts[3])
 
-    await db.update_verification(verification_id, 'rejected', callback.from_user.id)
-    await db.update_user(user_id, registration_step='verification')
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ فقط ادمین‌ها دسترسی دارن!", show_alert=True)
+        return
 
-    await callback.message.edit_text("❌ احراز هویت رد شد!")
+    await state.update_data(reject_verification_id=verification_id, reject_user_id=user_id)
+    await state.set_state(Admin.rejection_reason)
+
+    await callback.message.reply(
+        "📝 دلیل رد رو بنویس:\n(یا /skip برای رد بدون دلیل)"
+    )
+    await callback.answer()
+
+
+@router.message(Admin.rejection_reason)
+async def process_rejection_reason(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    data = await state.get_data()
+    verification_id = data['reject_verification_id']
+    user_id = data['reject_user_id']
+
+    reason = None if message.text == "/skip" else message.text
+
+    await db.update_verification(verification_id, 'rejected', message.from_user.id, reason)
+    await db.update_user(user_id, registration_step='verification_video')
 
     # Notify user
     try:
-        await callback.bot.send_message(
-            user_id,
-            "❌ متأسفانه احراز هویتت رد شد.\n\n"
-            "دلایل احتمالی:\n"
-            "- عکس پروفایل با ویدیو مطابقت نداره\n"
-            "- متن احراز هویت درست گفته نشده\n\n"
-            "لطفاً دوباره یه ویدیو مسیج بفرست و بگو:\n"
-            "«احراز هویت در ربات ایزی‌چت»"
-        )
+        reject_text = "❌ احراز هویتت رد شد.\n"
+        if reason:
+            reject_text += f"📝 دلیل: {reason}\n"
+        reject_text += "\nلطفاً دوباره ویدیو مسیج بفرست."
+        await message.bot.send_message(user_id, reject_text)
     except Exception:
         pass
+
+    await message.answer(f"✅ رد شد. کاربر مطلع شد.")
+    await state.clear()
