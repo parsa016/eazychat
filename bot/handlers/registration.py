@@ -93,7 +93,12 @@ async def cmd_start(message: Message, state: FSMContext):
             reply_markup=verification_optional_kb()
         )
     elif step == 'waiting_verification':
-        await message.answer("⏳ ویدیو احراز هویتت در حال بررسیه. منتظر باش!")
+        await state.clear()
+        await message.answer(
+            "⏳ ویدیو احراز هویتت در حال بررسیه.\n"
+            "بعد از تأیید بهت اطلاع میدیم. تا اون موقع می‌تونی از ربات استفاده کنی!",
+            reply_markup=main_menu_kb()
+        )
     elif step == 'purpose':
         await message.answer("🎯 هدفت از اومدن تو ربات:", reply_markup=purpose_kb())
     elif step == 'interests':

@@ -66,9 +66,43 @@ async def admin_pending(callback: CallbackQuery):
 
     await callback.message.answer(f"⏳ {len(pending)} احراز منتظر بررسی:")
     for v in pending[:5]:
-        text = f"👤 {v['name']} (ID: {v['user_id']})"
+        user = await db.get_user(v['user_id'])
+        photos = await db.get_photos(v['user_id'])
+
+        text = (
+            f"🔍 درخواست احراز هویت:\n\n"
+            f"👤 نام: {v['name']}\n"
+            f"🆔 ID: {v['user_id']}\n"
+            f"📱 شماره: {user.get('phone') or 'ندارد'}\n"
+            f"🎂 سن: {user['age']}\n"
+            f"👤 جنسیت: {'مرد' if user['gender'] == 'male' else 'زن'}\n"
+            f"📍 {user['province']}، {user['city']}"
+        )
+
+        # Send photos
+        if photos:
+            for photo in photos[:3]:
+                try:
+                    await callback.message.answer_photo(photo['file_id'])
+                except Exception:
+                    pass
+
+        # Send info text
+        await callback.message.answer(text)
+
+        # Send video
+        if v.get('video_file_id'):
+            try:
+                await callback.message.answer_video_note(v['video_file_id'])
+            except Exception:
+                try:
+                    await callback.message.answer_video(v['video_file_id'])
+                except Exception:
+                    pass
+
+        # Send admin buttons
         await callback.message.answer(
-            text,
+            "👆 تأیید یا رد کنید:",
             reply_markup=verification_admin_kb(v['user_id'], v['id'])
         )
     await callback.answer()

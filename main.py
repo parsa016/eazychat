@@ -50,9 +50,9 @@ async def main():
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
-    # Register routers
-    dp.include_router(registration.router)
+    # Register routers (verification first to catch video notes in verification state)
     dp.include_router(verification.router)
+    dp.include_router(registration.router)
     dp.include_router(profile_completion.router)
     dp.include_router(search.router)
     dp.include_router(matches.router)
