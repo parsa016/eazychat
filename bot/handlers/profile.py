@@ -3,8 +3,12 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from bot.database import db
-from bot.states.registration import Profile, Registration
-from bot.keyboards.main_kb import my_profile_kb, main_menu_kb, diamonds_kb, verification_optional_kb
+from bot.states.registration import Profile, Registration, Report
+from bot.keyboards.main_kb import (
+    my_profile_kb, main_menu_kb, diamonds_kb, verification_optional_kb,
+    edit_profile_kb, complete_profile_kb, interactions_kb,
+    diamond_tasks_kb, explore_more_kb
+)
 from config import ADMIN_IDS, VERIFICATION_GROUP_ID
 
 router = Router()
@@ -22,43 +26,36 @@ async def view_profile(message: Message):
         return
 
     photos = await db.get_photos(user_id)
-    interests = await db.get_interests(user_id)
-
-    gender_text = "👨 مرد" if user['gender'] == 'male' else "👩 زن"
-    purpose_map = {'dating': '💕 دوست‌یابی', 'fun': '🎉 سرگرمی', 'marriage': '💍 همسریابی'}
-    interest_map = {
-        'coffee': '☕ قهوه', 'tea': '🍵 چای', 'smoking': '🚬 سیگار',
-        'alcohol': '🍷 مشروب', 'sports': '🏋️ ورزش', 'gaming': '🎮 گیمینگ',
-        'reading': '📚 کتاب‌خوانی', 'music': '🎵 موسیقی', 'movies': '🎬 فیلم',
-        'travel': '✈️ سفر', 'cooking': '🍳 آشپزی', 'photography': '📸 عکاسی'
-    }
-
-    # Stats
-    views_r, likes_r, attract_pct = await db.get_attractiveness(user_id)
-    views_s, likes_s, picky_pct = await db.get_pickiness(user_id)
 
     verified_badge = " ✅" if user['is_verified'] else ""
-    text = (
-        f"{'✅' if user['is_verified'] else '😶'} {user['name']} ({user['age']}) | {gender_text}{verified_badge}\n"
-        f"📍 {user['province']} - {user['city']}\n"
-    )
+    gender_emoji = "👨" if user['gender'] == 'male' else "👩"
+    purpose_map = {'dating': '💕 دوست‌یابی', 'fun': '🎉 سرگرمی', 'marriage': '💍 همسریابی'}
+
+    text = f"{gender_emoji} {user['name']} ({user['age']}){verified_badge} | Fa\n"
+    text += f"📍 {user['province']} - {user['city']}\n\n"
+
+    # Extra info line
+    info_parts = []
+    if user.get('purpose'):
+        info_parts.append(f"👫 {purpose_map.get(user['purpose'], '')}")
+    if user.get('height'):
+        info_parts.append(f"📐 {user['height']}")
+    if user.get('eye_color'):
+        info_parts.append(f"👁️ {user['eye_color']}")
+    if user.get('job'):
+        info_parts.append(f"💼 {user['job']}")
+    if user.get('relationship_status'):
+        info_parts.append(f"💕 {user['relationship_status']}")
+    if user.get('exercise'):
+        info_parts.append(f"🏋️ {user['exercise']}")
+    if user.get('zodiac'):
+        info_parts.append(f"⭐ {user['zodiac']}")
+
+    if info_parts:
+        text += " | ".join(info_parts) + "\n"
+
     if user.get('bio'):
-        text += f"📝 {user['bio']}\n"
-
-    text += f"\n🎯 {purpose_map.get(user.get('purpose'), '—')}\n"
-
-    if interests:
-        interests_text = " | ".join(interest_map.get(i, i) for i in interests)
-        text += f"💡 {interests_text}\n"
-
-    text += (
-        f"\n━━━━━━━━━━━━\n"
-        f"💎 الماس: {user['diamonds']}\n"
-        f"⭐ پرمیوم: {'فعال' if user['is_premium'] else 'غیرفعال'}\n"
-        f"\n📊 آمار:\n"
-        f"✨ جذابیت: از {views_r} نفر، {likes_r} نفر ({attract_pct}%) لایکت کردن\n"
-        f"🎯 سخت‌پسندی: از {views_s} نفر، {likes_s} نفر ({picky_pct}%) رو لایک کردی\n"
-    )
+        text += f"\n📝 {user['bio']}\n"
 
     if photos:
         await message.answer_photo(
@@ -68,6 +65,251 @@ async def view_profile(message: Message):
         )
     else:
         await message.answer(text, reply_markup=my_profile_kb(user['is_verified']))
+
+
+# ============ EDIT PROFILE SECTION ============
+
+@router.callback_query(F.data == "edit_profile")
+async def edit_profile_menu(callback: CallbackQuery):
+    user = await db.get_user(callback.from_user.id)
+    photos = await db.get_photos(callback.from_user.id)
+    verified_badge = " ✅" if user['is_verified'] else ""
+    gender_emoji = "👨" if user['gender'] == 'male' else "👩"
+
+    text = f"{gender_emoji} {user['name']} ({user['age']}){verified_badge}\n"
+    text += f"📍 {user['province']} - {user['city']}\n"
+
+    if photos:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer_photo(
+            photos[0]['file_id'],
+            caption=text,
+            reply_markup=edit_profile_kb()
+        )
+    else:
+        await callback.message.edit_text(text, reply_markup=edit_profile_kb())
+    await callback.answer()
+
+
+# ============ COMPLETE PROFILE SECTION ============
+
+@router.callback_query(F.data == "complete_profile")
+async def complete_profile_menu(callback: CallbackQuery):
+    user = await db.get_user(callback.from_user.id)
+
+    text = "📋 تکمیل پروفایل\n\n"
+    text += "با انتخاب گزینه‌ها اطلاعات تکمیلی پروفایل خود را کامل‌تر کنید.\n\n"
+    text += "📊 اطلاعات تکمیلی پروفایل شما:\n"
+    text += f"* 📐 قد: {user.get('height') or '—'}\n"
+    text += f"* 👁️ رنگ چشم: {user.get('eye_color') or '—'}\n"
+    text += f"* 🏋️ ورزش: {user.get('exercise') or '—'}\n"
+    text += f"* 💕 وضعیت رابطه: {user.get('relationship_status') or '—'}\n"
+    text += f"* 💼 زمینه شغلی: {user.get('job') or '—'}\n"
+    text += f"* ⭐ ماه تولد: {user.get('zodiac') or '—'}\n"
+    text += f"* 🧠 شخصیت: {user.get('personality') or '—'}\n"
+    text += f"* 🎨 رنگ پوست: {user.get('skin_color') or '—'}\n"
+    text += f"* 🎓 تحصیلات: {user.get('education') or '—'}\n"
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer(text, reply_markup=complete_profile_kb())
+    await callback.answer()
+
+
+# ============ INTERACTIONS SECTION ============
+
+@router.callback_query(F.data == "interactions")
+async def interactions_menu(callback: CallbackQuery):
+    user = await db.get_user(callback.from_user.id)
+    verified_badge = " ✅" if user['is_verified'] else ""
+    gender_emoji = "👨" if user['gender'] == 'male' else "👩"
+    text = f"{gender_emoji} {user['name']} ({user['age']}){verified_badge}\n📍 {user['province']} - {user['city']}\n"
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer(text, reply_markup=interactions_kb())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "view_likers")
+async def view_likers_from_profile(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    user = await db.get_user(user_id)
+    if not user['is_verified']:
+        await callback.answer("🔒 برای دیدن لایک‌ها باید احراز هویت کنی!", show_alert=True)
+        return
+    likers = await db.get_who_liked_me(user_id)
+    if not likers:
+        await callback.answer("😔 هنوز کسی تو رو لایک نکرده!", show_alert=True)
+        return
+    from bot.keyboards.main_kb import like_notification_kb
+    await callback.message.answer(f"❤️ لایک‌ها ({len(likers)} نفر):")
+    for liker in likers[:10]:
+        photos = await db.get_photos(liker['id'])
+        text = f"👤 {liker['name']} | 🎂 {liker['age']} ساله\n📍 {liker['province']}، {liker['city']}"
+        if photos:
+            await callback.message.answer_photo(photos[0]['file_id'], caption=text, reply_markup=like_notification_kb(liker['id']))
+        else:
+            await callback.message.answer(text, reply_markup=like_notification_kb(liker['id']))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "view_matches_list")
+async def view_matches_from_profile(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    user = await db.get_user(user_id)
+    if not user['is_verified']:
+        await callback.answer("🔒 برای دیدن مچ‌ها باید احراز هویت کنی!", show_alert=True)
+        return
+    from bot.keyboards.main_kb import match_profile_kb
+    matches = await db.get_matches(user_id)
+    if not matches:
+        await callback.answer("😔 هنوز مچی نداری!", show_alert=True)
+        return
+    await callback.message.answer(f"💕 مچ‌ها ({len(matches)} نفر):")
+    for match in matches[:10]:
+        photos = await db.get_photos(match['id'])
+        text = f"👤 {match['name']} | 🎂 {match['age']} ساله\n📍 {match['province']}، {match['city']}"
+        if photos:
+            await callback.message.answer_photo(photos[0]['file_id'], caption=text, reply_markup=match_profile_kb(match['id']))
+        else:
+            await callback.message.answer(text, reply_markup=match_profile_kb(match['id']))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "view_sent_likes")
+async def view_sent_likes(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    sent = await db.fetchall(
+        "SELECT u.name, u.age, u.province, u.city FROM likes l JOIN users u ON l.to_user_id = u.id WHERE l.from_user_id = %s ORDER BY l.created_at DESC LIMIT 15",
+        (user_id,)
+    )
+    if not sent:
+        await callback.answer("هنوز لایکی ارسال نکردی!", show_alert=True)
+        return
+    text = "💌 لایک‌های ارسالی:\n\n"
+    for s in sent:
+        text += f"• {s['name']} ({s['age']}) — {s['province']}\n"
+    await callback.message.answer(text)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "view_blocked")
+async def view_blocked(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    blocked = await db.fetchall(
+        "SELECT u.id, u.name FROM blocks b JOIN users u ON b.blocked_id = u.id WHERE b.blocker_id = %s",
+        (user_id,)
+    )
+    if not blocked:
+        await callback.answer("هیچ‌کسی رو بلاک نکردی!", show_alert=True)
+        return
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    text = "🚫 بلاک‌شده‌ها:\n\n"
+    kb_rows = []
+    for b in blocked:
+        text += f"• {b['name']}\n"
+        kb_rows.append([InlineKeyboardButton(text=f"آن‌بلاک {b['name']}", callback_data=f"unblock_{b['id']}")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="interactions")])
+    await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "clear_dislikes")
+async def clear_dislikes(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    await db.execute("DELETE FROM rejects WHERE from_user_id = %s", (user_id,))
+    await callback.answer("✅ دیسلایک‌ها پاک شدن! حالا دوباره می‌تونی اون‌ها رو ببینی.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("unblock_"))
+async def unblock_user(callback: CallbackQuery):
+    target_id = int(callback.data.split("_")[1])
+    user_id = callback.from_user.id
+    await db.execute("DELETE FROM blocks WHERE blocker_id = %s AND blocked_id = %s", (user_id, target_id))
+    await callback.answer("✅ آن‌بلاک شد!", show_alert=True)
+
+
+# ============ STATS ============
+
+@router.callback_query(F.data == "my_stats")
+async def my_stats(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    user = await db.get_user(user_id)
+    views_r, likes_r, attract_pct = await db.get_attractiveness(user_id)
+    views_s, likes_s, picky_pct = await db.get_pickiness(user_id)
+    matches_count = await db.fetchone(
+        "SELECT COUNT(*) as cnt FROM matches WHERE (user1_id = %s OR user2_id = %s) AND is_active = 1",
+        (user_id, user_id)
+    )
+
+    text = (
+        f"📊 آمار شخصی شما\n\n"
+        f"👁️ پروفایل‌هایی که بازدید کردید: {views_s}\n"
+        f"👀 دفعاتی که پروفایل شما بازدید شده: {views_r}\n"
+        f"❤️ لایک‌های دریافتی: {likes_r}\n"
+        f"👍 لایک‌های ارسالی: {likes_s}\n"
+        f"💕 مچ‌ها: {matches_count['cnt']}\n"
+        f"❤️ نرخ جذابیت شما در اکسپلور: {attract_pct}%\n"
+        f"🤨 سخت‌پسندی شما: {picky_pct}%\n\n"
+        f"💎 الماس‌های شما: {user['diamonds']}"
+    )
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 مشاهده پروفایل من", callback_data="back_profile")]
+    ])
+    await callback.message.answer(text, reply_markup=kb)
+    await callback.answer()
+
+
+# ============ BACK TO PROFILE ============
+
+@router.callback_query(F.data == "back_profile")
+async def back_to_profile(callback: CallbackQuery):
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    # Re-send profile
+    user_id = callback.from_user.id
+    user = await db.get_user(user_id)
+    photos = await db.get_photos(user_id)
+    verified_badge = " ✅" if user['is_verified'] else ""
+    gender_emoji = "👨" if user['gender'] == 'male' else "👩"
+    purpose_map = {'dating': '💕 دوست‌یابی', 'fun': '🎉 سرگرمی', 'marriage': '💍 همسریابی'}
+
+    text = f"{gender_emoji} {user['name']} ({user['age']}){verified_badge} | Fa\n"
+    text += f"📍 {user['province']} - {user['city']}\n\n"
+    info_parts = []
+    if user.get('purpose'):
+        info_parts.append(f"👫 {purpose_map.get(user['purpose'], '')}")
+    if user.get('height'):
+        info_parts.append(f"📐 {user['height']}")
+    if user.get('eye_color'):
+        info_parts.append(f"👁️ {user['eye_color']}")
+    if user.get('job'):
+        info_parts.append(f"💼 {user['job']}")
+    if user.get('relationship_status'):
+        info_parts.append(f"💕 {user['relationship_status']}")
+    if info_parts:
+        text += " | ".join(info_parts) + "\n"
+    if user.get('bio'):
+        text += f"\n📝 {user['bio']}\n"
+
+    if photos:
+        await callback.message.answer_photo(
+            photos[0]['file_id'], caption=text, reply_markup=my_profile_kb(user['is_verified'])
+        )
+    else:
+        await callback.message.answer(text, reply_markup=my_profile_kb(user['is_verified']))
+    await callback.answer()
 
 
 # ============ START VERIFICATION FROM PROFILE ============
@@ -104,6 +346,63 @@ async def process_edit_name(message: Message, state: FSMContext):
         return
     await db.update_user(message.from_user.id, name=name)
     await message.answer(f"✅ اسمت تغییر کرد به: {name}", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+# ============ EDIT AGE ============
+
+@router.callback_query(F.data == "edit_age")
+async def start_edit_age(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_age)
+    await callback.message.answer("🎂 سن جدیدت رو بنویس (عدد):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_age)
+async def process_edit_age(message: Message, state: FSMContext):
+    try:
+        age = int(message.text.strip())
+        if age < 14 or age > 80:
+            await message.answer("❌ سن باید بین 14 تا 80 باشه.")
+            return
+    except ValueError:
+        await message.answer("❌ عدد وارد کن!")
+        return
+    await db.update_user(message.from_user.id, age=age)
+    await message.answer(f"✅ سنت تغییر کرد به: {age}", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+# ============ EDIT LOCATION ============
+
+@router.callback_query(F.data == "edit_location")
+async def start_edit_location(callback: CallbackQuery, state: FSMContext):
+    from bot.data.cities import PROVINCES
+    from bot.keyboards.main_kb import province_kb
+    await state.set_state(Profile.editing_location)
+    await callback.message.answer("📍 استان جدیدت رو انتخاب کن:", reply_markup=province_kb(PROVINCES))
+    await callback.answer()
+
+
+@router.message(Profile.editing_location)
+async def process_edit_location(message: Message, state: FSMContext):
+    from bot.data.cities import PROVINCES, CITIES
+    from bot.keyboards.main_kb import city_kb
+    province = message.text.strip()
+    if province not in PROVINCES:
+        await message.answer("❌ استان نامعتبر!")
+        return
+    await db.update_user(message.from_user.id, province=province)
+    await state.set_state(Profile.editing_location_city)
+    cities = CITIES.get(province, [])
+    await message.answer("🏙️ شهرت رو انتخاب کن:", reply_markup=city_kb(cities))
+
+
+@router.message(Profile.editing_location_city)
+async def process_edit_location_city(message: Message, state: FSMContext):
+    city = message.text.strip()
+    await db.update_user(message.from_user.id, city=city)
+    await message.answer(f"✅ لوکیشن تغییر کرد!", reply_markup=main_menu_kb())
     await state.clear()
 
 
@@ -155,11 +454,136 @@ async def start_edit_purpose(callback: CallbackQuery):
 @router.callback_query(F.data == "edit_interests")
 async def start_edit_interests(callback: CallbackQuery):
     from bot.keyboards.main_kb import interests_kb
-    await callback.message.answer(
-        "💡 علاقه‌مندی‌های جدیدت رو انتخاب کن:",
-        reply_markup=interests_kb()
-    )
+    await callback.message.answer("💡 علاقه‌مندی‌های جدیدت رو انتخاب کن:", reply_markup=interests_kb())
     await callback.answer()
+
+
+# ============ COMPLETE PROFILE FIELDS ============
+
+@router.callback_query(F.data == "cp_height")
+async def cp_height(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_height)
+    await callback.message.answer("📐 قدت رو بنویس (مثلاً: 180-190 یا 175):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_height)
+async def process_cp_height(message: Message, state: FSMContext):
+    await db.update_user(message.from_user.id, height=message.text.strip())
+    await message.answer("✅ قد ثبت شد!", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+@router.callback_query(F.data == "cp_eye_color")
+async def cp_eye_color(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_eye_color)
+    await callback.message.answer("👁️ رنگ چشمت رو بنویس (مثلاً: مشکی، قهوه‌ای، سبز، آبی):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_eye_color)
+async def process_cp_eye_color(message: Message, state: FSMContext):
+    await db.update_user(message.from_user.id, eye_color=message.text.strip())
+    await message.answer("✅ رنگ چشم ثبت شد!", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+@router.callback_query(F.data == "cp_exercise")
+async def cp_exercise(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_exercise)
+    await callback.message.answer("🏋️ چقدر ورزش می‌کنی؟ (مثلاً: هر روز، چند بار در هفته، کم، اصلاً):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_exercise)
+async def process_cp_exercise(message: Message, state: FSMContext):
+    await db.update_user(message.from_user.id, exercise=message.text.strip())
+    await message.answer("✅ ثبت شد!", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+@router.callback_query(F.data == "cp_relationship")
+async def cp_relationship(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_relationship)
+    await callback.message.answer("💕 وضعیت رابطه‌ات رو بنویس (مثلاً: مجرد، در رابطه، نامزد):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_relationship)
+async def process_cp_relationship(message: Message, state: FSMContext):
+    await db.update_user(message.from_user.id, relationship_status=message.text.strip())
+    await message.answer("✅ ثبت شد!", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+@router.callback_query(F.data == "cp_job")
+async def cp_job(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_job)
+    await callback.message.answer("💼 زمینه شغلیت رو بنویس (مثلاً: فریلنسر، دانشجو، مهندس):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_job)
+async def process_cp_job(message: Message, state: FSMContext):
+    await db.update_user(message.from_user.id, job=message.text.strip())
+    await message.answer("✅ ثبت شد!", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+@router.callback_query(F.data == "cp_zodiac")
+async def cp_zodiac(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_zodiac)
+    await callback.message.answer("⭐ ماه تولدت رو بنویس (مثلاً: فروردین، اردیبهشت، اسفند...):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_zodiac)
+async def process_cp_zodiac(message: Message, state: FSMContext):
+    await db.update_user(message.from_user.id, zodiac=message.text.strip())
+    await message.answer("✅ ثبت شد!", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+@router.callback_query(F.data == "cp_personality")
+async def cp_personality(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_personality)
+    await callback.message.answer("🧠 تایپ شخصیتت رو بنویس (مثلاً: درون‌گرا، برون‌گرا):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_personality)
+async def process_cp_personality(message: Message, state: FSMContext):
+    await db.update_user(message.from_user.id, personality=message.text.strip())
+    await message.answer("✅ ثبت شد!", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+@router.callback_query(F.data == "cp_skin_color")
+async def cp_skin_color(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_skin_color)
+    await callback.message.answer("🎨 رنگ پوستت رو بنویس (مثلاً: سفید، گندمی، سبزه):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_skin_color)
+async def process_cp_skin_color(message: Message, state: FSMContext):
+    await db.update_user(message.from_user.id, skin_color=message.text.strip())
+    await message.answer("✅ ثبت شد!", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+@router.callback_query(F.data == "cp_education")
+async def cp_education(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Profile.editing_education)
+    await callback.message.answer("🎓 مقطع تحصیلیت رو بنویس (مثلاً: دیپلم، کارشناسی، کارشناسی ارشد):")
+    await callback.answer()
+
+
+@router.message(Profile.editing_education)
+async def process_cp_education(message: Message, state: FSMContext):
+    await db.update_user(message.from_user.id, education=message.text.strip())
+    await message.answer("✅ ثبت شد!", reply_markup=main_menu_kb())
+    await state.clear()
 
 
 # ============ DIAMONDS ============
@@ -170,13 +594,16 @@ async def view_diamonds(message: Message):
     user = await db.get_user(user_id)
     streak = user['streak_days']
 
+    # Medal progress
+    medal_text = "🏆 مدال‌ها و پیشرفت:\n"
+    medal_text += f"🌱 جوانه امید 20 💎\n(3 روز متوالی): {min(streak, 3)}/3 {'✅' if user['streak_3_claimed'] else ''}\n"
+    medal_text += f"🏅 هفت راز 50 💎\n(7 روز متوالی): {min(streak, 7)}/7 {'✅' if user['streak_7_claimed'] else ''}\n"
+    medal_text += f"🏆 پایدار 200 💎\n(30 روز متوالی): {min(streak, 30)}/30 {'✅' if user['streak_30_claimed'] else ''}\n"
+
     text = (
-        f"💎 الماس‌های من: {user['diamonds']}\n"
-        f"🔥 روزهای متوالی: {streak} روز\n\n"
-        f"━━━━━━━━━━━━\n"
-        f"🎁 جایزه 3 روز: {'✅ دریافت شده' if user['streak_3_claimed'] else '❌ ' + ('آماده!' if streak >= 3 else f'{3-streak} روز مونده')}\n"
-        f"🎁 جایزه 7 روز: {'✅ دریافت شده' if user['streak_7_claimed'] else '❌ ' + ('آماده!' if streak >= 7 else f'{7-streak} روز مونده')}\n"
-        f"🎁 جایزه 30 روز: {'✅ دریافت شده' if user['streak_30_claimed'] else '❌ ' + ('آماده!' if streak >= 30 else f'{30-streak} روز مونده')}\n"
+        f"💎 الماس‌های شما: {user['diamonds']}\n\n"
+        f"⏰ روزهای متوالی دریافت الماس: {streak}\n\n"
+        f"{medal_text}"
     )
 
     await message.answer(text, reply_markup=diamonds_kb())
@@ -193,13 +620,98 @@ async def claim_daily(callback: CallbackQuery):
         await callback.answer("❌ امروز قبلاً دریافت کردی! فردا بیا.", show_alert=True)
 
 
-# ============ STREAK REWARDS ============
+# ============ DIAMOND TASKS ============
 
-@router.callback_query(F.data.startswith("streak_"))
-async def claim_streak(callback: CallbackQuery):
-    streak_type = callback.data.replace("streak_", "")
-    success, msg = await db.claim_streak_reward(callback.from_user.id, streak_type)
-    await callback.answer(msg, show_alert=True)
+@router.callback_query(F.data == "diamond_tasks")
+async def show_diamond_tasks(callback: CallbackQuery):
+    await callback.message.answer("🎁 وظایف الماسی:\n\nهر وظیفه رو انجام بده و الماس بگیر!", reply_markup=diamond_tasks_kb())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "task_join_channel")
+async def task_join_channel(callback: CallbackQuery):
+    # Check if already done today
+    done = await db.fetchone(
+        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'join_channel' AND DATE(completed_at) = CURDATE()",
+        (callback.from_user.id,)
+    )
+    if done:
+        await callback.answer("❌ این وظیفه رو امروز انجام دادی!", show_alert=True)
+        return
+    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (callback.from_user.id, 'join_channel'))
+    await db.add_diamonds(callback.from_user.id, 3, 'gift', 'وظیفه: جوین کانال')
+    await callback.answer("✅ 3 الماس دریافت کردی! ممنون از جوین شدنت 💎", show_alert=True)
+
+
+@router.callback_query(F.data == "task_comment")
+async def task_comment(callback: CallbackQuery):
+    done = await db.fetchone(
+        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'comment' AND DATE(completed_at) = CURDATE()",
+        (callback.from_user.id,)
+    )
+    if done:
+        await callback.answer("❌ این وظیفه رو امروز انجام دادی!", show_alert=True)
+        return
+    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (callback.from_user.id, 'comment'))
+    await db.add_diamonds(callback.from_user.id, 4, 'gift', 'وظیفه: کامنت')
+    await callback.answer("✅ 4 الماس دریافت کردی! ممنون 💎", show_alert=True)
+
+
+@router.callback_query(F.data == "task_react")
+async def task_react(callback: CallbackQuery):
+    done = await db.fetchone(
+        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'react' AND DATE(completed_at) = CURDATE()",
+        (callback.from_user.id,)
+    )
+    if done:
+        await callback.answer("❌ این وظیفه رو امروز انجام دادی!", show_alert=True)
+        return
+    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (callback.from_user.id, 'react'))
+    await db.add_diamonds(callback.from_user.id, 2, 'gift', 'وظیفه: ری‌اکشن')
+    await callback.answer("✅ 2 الماس دریافت کردی! 💎", show_alert=True)
+
+
+@router.callback_query(F.data == "task_sponsor")
+async def task_sponsor(callback: CallbackQuery):
+    done = await db.fetchone(
+        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'sponsor' AND DATE(completed_at) = CURDATE()",
+        (callback.from_user.id,)
+    )
+    if done:
+        await callback.answer("❌ این وظیفه رو امروز انجام دادی!", show_alert=True)
+        return
+    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (callback.from_user.id, 'sponsor'))
+    await db.add_diamonds(callback.from_user.id, 6, 'gift', 'وظیفه: جوین اسپانسر')
+    await callback.answer("✅ 6 الماس دریافت کردی! 💎", show_alert=True)
+
+
+@router.callback_query(F.data == "back_diamonds")
+async def back_diamonds(callback: CallbackQuery):
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
+
+
+# ============ TRANSACTION HISTORY ============
+
+@router.callback_query(F.data == "transaction_history")
+async def transaction_history(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    txns = await db.fetchall(
+        "SELECT amount, description, created_at FROM diamond_transactions WHERE user_id = %s ORDER BY created_at DESC LIMIT 15",
+        (user_id,)
+    )
+    if not txns:
+        await callback.answer("تراکنشی نداری!", show_alert=True)
+        return
+    text = "📜 تاریخچه تراکنش‌ها:\n\n"
+    for t in txns:
+        sign = "+" if t['amount'] > 0 else ""
+        text += f"{sign}{t['amount']} 💎 — {t['description'] or '—'}\n"
+    await callback.message.answer(text)
+    await callback.answer()
 
 
 # ============ BUY DIAMONDS ============
@@ -212,6 +724,50 @@ async def buy_diamonds(callback: CallbackQuery):
         "از منوی اصلی «📞 پشتیبانی» رو بزن."
     )
     await callback.answer(text, show_alert=True)
+
+
+# ============ FREE DIAMOND INFO ============
+
+@router.callback_query(F.data == "free_diamond_info")
+async def free_diamond_info(callback: CallbackQuery):
+    text = (
+        "💎 الماس رایگان:\n\n"
+        "• هر 24 ساعت 1 الماس رایگان\n"
+        "• 3 روز متوالی: 10 الماس 🌱\n"
+        "• 7 روز متوالی: 30 الماس 🏅\n"
+        "• 30 روز متوالی: 70 الماس 🏆\n\n"
+        "همچنین از وظایف الماسی و معرفی دوستان هم الماس بگیر!"
+    )
+    await callback.answer(text, show_alert=True)
+
+
+# ============ REFERRAL LINK ============
+
+@router.callback_query(F.data == "referral_link")
+async def referral_link(callback: CallbackQuery):
+    user = await db.get_user(callback.from_user.id)
+    code = user['referral_code']
+    bot_info = await callback.bot.me()
+    link = f"https://t.me/{bot_info.username}?start={code}"
+    text = (
+        f"👥 معرفی دوستان:\n\n"
+        f"🔗 لینک دعوت تو:\n{link}\n\n"
+        f"با هر دعوت از دوستت:\n"
+        f"• 10 الماس رایگان\n"
+        f"• 10% از مبلغ خریدهای دوستت\n\n"
+        f"لینک رو به دوستات بفرست!"
+    )
+    await callback.message.answer(text)
+    await callback.answer()
+
+
+# ============ STREAK REWARDS ============
+
+@router.callback_query(F.data.startswith("streak_"))
+async def claim_streak(callback: CallbackQuery):
+    streak_type = callback.data.replace("streak_", "")
+    success, msg = await db.claim_streak_reward(callback.from_user.id, streak_type)
+    await callback.answer(msg, show_alert=True)
 
 
 # ============ PREMIUM ============
@@ -257,7 +813,6 @@ async def process_support_message(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
 
-    # Forward to all admins
     for admin_id in ADMIN_IDS:
         try:
             await message.bot.send_message(
@@ -272,6 +827,72 @@ async def process_support_message(message: Message, state: FSMContext):
 
     await message.answer("✅ پیامت ارسال شد! ادمین بهت جواب میده.", reply_markup=main_menu_kb())
     await state.clear()
+
+
+# ============ EXPLORE MORE (block/report) ============
+
+@router.callback_query(F.data.startswith("explore_more_"))
+async def explore_more(callback: CallbackQuery):
+    target_id = int(callback.data.split("_")[2])
+    await callback.message.edit_reply_markup(reply_markup=explore_more_kb(target_id))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("block_user_"))
+async def block_user(callback: CallbackQuery):
+    target_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+    try:
+        await db.execute(
+            "INSERT IGNORE INTO blocks (blocker_id, blocked_id) VALUES (%s, %s)",
+            (user_id, target_id)
+        )
+    except Exception:
+        pass
+    await callback.answer("🚫 کاربر بلاک شد!", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("report_user_"))
+async def report_user(callback: CallbackQuery, state: FSMContext):
+    target_id = int(callback.data.split("_")[2])
+    await state.set_state(Report.waiting_reason)
+    await state.update_data(report_target=target_id)
+    await callback.message.answer("⚠️ دلیل گزارش رو بنویس:")
+    await callback.answer()
+
+
+@router.message(Report.waiting_reason)
+async def process_report_reason(message: Message, state: FSMContext):
+    data = await state.get_data()
+    target_id = data['report_target']
+    user_id = message.from_user.id
+    await db.execute(
+        "INSERT INTO reports (reporter_id, reported_id, reason) VALUES (%s, %s, %s)",
+        (user_id, target_id, message.text.strip())
+    )
+    await message.answer("✅ گزارش ثبت شد! ادمین بررسی می‌کنه.", reply_markup=main_menu_kb())
+    await state.clear()
+
+
+@router.callback_query(F.data == "back_to_explore")
+async def back_to_explore(callback: CallbackQuery, state: FSMContext):
+    # Get current browsing profile from state
+    data = await state.get_data()
+    profile_id = data.get('current_profile_id')
+    if profile_id:
+        user = await db.get_user(callback.from_user.id)
+        from bot.keyboards.main_kb import profile_action_kb
+        await callback.message.edit_reply_markup(
+            reply_markup=profile_action_kb(profile_id, user.get('is_premium', False))
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "exit_explore")
+async def exit_explore(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("🏠 برگشتی به منو!", reply_markup=main_menu_kb())
+    await callback.answer()
 
 
 # ============ BACK TO MENU ============

@@ -126,35 +126,47 @@ async def show_next_profile(message: Message, state: FSMContext, user_id: int):
     await db.increment_views(user_id)
     await db.increment_views_received(profile['id'])
     await db.add_search_history(user_id, profile['id'])
+    await state.update_data(current_profile_id=profile['id'])
     await send_profile_card(message, profile, user['is_premium'])
 
 
 async def send_profile_card(message: Message, profile: dict, is_premium: bool = False):
     photos = await db.get_photos(profile['id'])
-    interests = await db.get_interests(profile['id'])
 
-    gender_text = "👨 مرد" if profile['gender'] == 'male' else "👩 زن"
-    purpose_map = {'dating': '💕 دوست‌یابی', 'fun': '🎉 سرگرمی', 'marriage': '💍 همسریابی'}
-    interest_map = {
-        'coffee': '☕ قهوه', 'tea': '🍵 چای', 'smoking': '🚬 سیگار',
-        'alcohol': '🍷 مشروب', 'sports': '🏋️ ورزش', 'gaming': '🎮 گیمینگ',
-        'reading': '📚 کتاب‌خوانی', 'music': '🎵 موسیقی', 'movies': '🎬 فیلم',
-        'travel': '✈️ سفر', 'cooking': '🍳 آشپزی', 'photography': '📸 عکاسی'
-    }
+    gender_emoji = "👨" if profile['gender'] == 'male' else "👩"
+    purpose_map = {'dating': '👫 دوست‌یابی', 'fun': '🎉 گپ و گفتگو', 'marriage': '💍 همسریابی'}
 
     verified_badge = " ✅" if profile.get('is_verified') else ""
-    text = (
-        f"👤 {profile['name']}{verified_badge}\n"
-        f"{gender_text} | 🎂 {profile['age']} ساله\n"
-        f"📍 {profile['province']}، {profile['city']}\n"
-        f"🎯 {purpose_map.get(profile['purpose'], '')}\n"
-    )
-    if profile.get('bio'):
-        text += f"📝 {profile['bio']}\n"
+    text = f"{gender_emoji} {profile['name']} ({profile['age']}){verified_badge} | Fa\n"
+    text += f"📍 {profile['province']}، {profile['city']}\n\n"
 
-    if interests:
-        interests_text = " | ".join(interest_map.get(i, i) for i in interests)
-        text += f"💡 {interests_text}\n"
+    # Info line like reference
+    info_parts = []
+    if profile.get('purpose'):
+        info_parts.append(purpose_map.get(profile['purpose'], ''))
+    if profile.get('height'):
+        info_parts.append(f"📐 {profile['height']}")
+    if profile.get('eye_color'):
+        info_parts.append(f"👁️ {profile['eye_color']}")
+    if profile.get('skin_color'):
+        info_parts.append(f"🎨 {profile['skin_color']}")
+    if profile.get('education'):
+        info_parts.append(f"🎓 {profile['education']}")
+    if profile.get('job'):
+        info_parts.append(f"💼 {profile['job']}")
+    if profile.get('relationship_status'):
+        info_parts.append(f"💕 {profile['relationship_status']}")
+    if profile.get('personality'):
+        info_parts.append(f"🧠 {profile['personality']}")
+    if profile.get('exercise'):
+        info_parts.append(f"🏋️ {profile['exercise']}")
+    if profile.get('zodiac'):
+        info_parts.append(f"⭐ {profile['zodiac']}")
+    if info_parts:
+        text += " | ".join(info_parts) + "\n"
+
+    if profile.get('bio'):
+        text += f"\n📝 {profile['bio']}\n"
 
     if photos:
         await message.answer_photo(

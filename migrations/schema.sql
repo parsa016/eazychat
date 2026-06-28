@@ -12,6 +12,15 @@ CREATE TABLE IF NOT EXISTS users (
     province VARCHAR(100) DEFAULT NULL,
     city VARCHAR(100) DEFAULT NULL,
     purpose ENUM('dating', 'fun', 'marriage') DEFAULT NULL,
+    height VARCHAR(20) DEFAULT NULL,
+    eye_color VARCHAR(30) DEFAULT NULL,
+    exercise VARCHAR(50) DEFAULT NULL,
+    relationship_status VARCHAR(30) DEFAULT NULL,
+    job VARCHAR(50) DEFAULT NULL,
+    zodiac VARCHAR(30) DEFAULT NULL,
+    personality VARCHAR(30) DEFAULT NULL,
+    skin_color VARCHAR(30) DEFAULT NULL,
+    education VARCHAR(50) DEFAULT NULL,
     is_verified TINYINT(1) DEFAULT 0,
     is_premium TINYINT(1) DEFAULT 0,
     premium_expires_at DATETIME DEFAULT NULL,
@@ -204,4 +213,24 @@ CREATE TABLE IF NOT EXISTS search_history (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (viewed_user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Blocks
+CREATE TABLE IF NOT EXISTS blocks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    blocker_id BIGINT NOT NULL,
+    blocked_id BIGINT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_block (blocker_id, blocked_id),
+    FOREIGN KEY (blocker_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (blocked_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Diamond tasks completed by users
+CREATE TABLE IF NOT EXISTS diamond_tasks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    task_type VARCHAR(50) NOT NULL,
+    completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

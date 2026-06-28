@@ -7,4 +7,5 @@ from bot.handlers import (
     profile,
     admin,
     referral,
+    direct_message,
 )

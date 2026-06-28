@@ -212,13 +212,15 @@ class Database:
                                      province: str = None, city: str = None, limit: int = 1):
         conditions = [
             "u.id != %s",
-            "u.is_verified = 1",
+            "u.registration_step = 'completed'",
             "u.is_active = 1",
             "u.is_banned = 0",
             "u.id NOT IN (SELECT to_user_id FROM likes WHERE from_user_id = %s)",
             "u.id NOT IN (SELECT to_user_id FROM rejects WHERE from_user_id = %s)",
+            "u.id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id = %s)",
+            "u.id NOT IN (SELECT blocker_id FROM blocks WHERE blocked_id = %s)",
         ]
-        params = [user_id, user_id, user_id]
+        params = [user_id, user_id, user_id, user_id, user_id]
 
         if gender:
             conditions.append("u.gender = %s")
@@ -451,6 +453,8 @@ class Database:
         await self.execute("DELETE FROM daily_usage WHERE user_id = %s", (user_id,))
         await self.execute("DELETE FROM verifications WHERE user_id = %s", (user_id,))
         await self.execute("DELETE FROM referrals WHERE referrer_id = %s OR referred_id = %s", (user_id, user_id))
+        await self.execute("DELETE FROM blocks WHERE blocker_id = %s OR blocked_id = %s", (user_id, user_id))
+        await self.execute("DELETE FROM diamond_tasks WHERE user_id = %s", (user_id,))
         await self.execute("DELETE FROM users WHERE id = %s", (user_id,))
 
     # ============ STATS ============

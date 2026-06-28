@@ -7,8 +7,7 @@ from aiogram.types import (
 def main_menu_kb():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔍 جستجو"), KeyboardButton(text="❤️ لایک‌های من")],
-            [KeyboardButton(text="💑 جفت‌شده‌ها"), KeyboardButton(text="👤 پروفایل من")],
+            [KeyboardButton(text="🔍 جستجو"), KeyboardButton(text="👤 پروفایل من")],
             [KeyboardButton(text="💎 الماس‌ها"), KeyboardButton(text="⭐ اشتراک پرمیوم")],
             [KeyboardButton(text="🎁 کسب درآمد"), KeyboardButton(text="📞 پشتیبانی")]
         ],
@@ -129,17 +128,26 @@ def profile_action_kb(target_user_id: int, is_premium: bool = False):
     keyboard = [
         [
             InlineKeyboardButton(text="❤️ لایک", callback_data=f"like_{target_user_id}"),
-            InlineKeyboardButton(text="❌ رد", callback_data=f"reject_{target_user_id}")
+            InlineKeyboardButton(text="💌 لایک و دایرکت", callback_data=f"likedirect_{target_user_id}"),
+            InlineKeyboardButton(text="👎 دیسلایک", callback_data=f"reject_{target_user_id}")
         ],
         [
-            InlineKeyboardButton(text="💎 لایک + دایرکت", callback_data=f"likedirect_{target_user_id}")
+            InlineKeyboardButton(text="🔙 بازگشت", callback_data="go_back" if is_premium else "go_back_locked"),
+            InlineKeyboardButton(text="خروج", callback_data="exit_explore"),
+            InlineKeyboardButton(text="⚙️ بیشتر", callback_data=f"explore_more_{target_user_id}")
         ]
     ]
-    if is_premium:
-        keyboard.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="go_back")])
-    else:
-        keyboard.append([InlineKeyboardButton(text="🔒 بازگشت (پرمیوم)", callback_data="go_back_locked")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def explore_more_kb(target_user_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🚫 بلاک", callback_data=f"block_user_{target_user_id}"),
+            InlineKeyboardButton(text="⚠️ گزارش", callback_data=f"report_user_{target_user_id}")
+        ],
+        [InlineKeyboardButton(text="🔙 بازگشت به اکسپلور", callback_data="back_to_explore")]
+    ])
 
 
 def like_notification_kb(from_user_id: int):
@@ -177,15 +185,67 @@ def photos_done_kb():
 
 def my_profile_kb(is_verified: bool = False):
     keyboard = [
-        [InlineKeyboardButton(text="✏️ ویرایش اسم", callback_data="edit_name")],
-        [InlineKeyboardButton(text="📝 ویرایش بیو", callback_data="edit_bio")],
-        [InlineKeyboardButton(text="📸 تغییر عکس‌ها", callback_data="edit_photos")],
-        [InlineKeyboardButton(text="🎯 تغییر هدف", callback_data="edit_purpose")],
-        [InlineKeyboardButton(text="💡 تغییر علاقه‌مندی‌ها", callback_data="edit_interests")],
+        [
+            InlineKeyboardButton(text="✏️ ویرایش پروفایل", callback_data="edit_profile"),
+            InlineKeyboardButton(text="📋 تکمیل پروفایل", callback_data="complete_profile")
+        ],
+        [
+            InlineKeyboardButton(text="💬 تعاملات", callback_data="interactions"),
+            InlineKeyboardButton(text="📊 آمار", callback_data="my_stats")
+        ],
     ]
     if not is_verified:
         keyboard.append([InlineKeyboardButton(text="🎥 احراز هویت", callback_data="start_verification")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def edit_profile_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="تغییر نام", callback_data="edit_name"),
+            InlineKeyboardButton(text="تغییر سن", callback_data="edit_age")
+        ],
+        [
+            InlineKeyboardButton(text="تغییر لوکیشن", callback_data="edit_location"),
+            InlineKeyboardButton(text="تغییر هدف", callback_data="edit_purpose")
+        ],
+        [
+            InlineKeyboardButton(text="ایموجی‌ها", callback_data="edit_interests"),
+            InlineKeyboardButton(text="تصاویر پروفایل", callback_data="edit_photos")
+        ],
+        [InlineKeyboardButton(text="✏️ ویرایش بیو", callback_data="edit_bio")],
+        [InlineKeyboardButton(text="🔙 بازگشت به پروفایل", callback_data="back_profile")]
+    ])
+
+
+def complete_profile_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📐 قد", callback_data="cp_height")],
+        [InlineKeyboardButton(text="👁️ رنگ چشم", callback_data="cp_eye_color")],
+        [InlineKeyboardButton(text="🏋️ ورزش", callback_data="cp_exercise")],
+        [InlineKeyboardButton(text="💕 وضعیت رابطه", callback_data="cp_relationship")],
+        [InlineKeyboardButton(text="💼 زمینه شغلی", callback_data="cp_job")],
+        [InlineKeyboardButton(text="⭐ ماه تولد", callback_data="cp_zodiac")],
+        [InlineKeyboardButton(text="🧠 شخصیت", callback_data="cp_personality")],
+        [InlineKeyboardButton(text="🎨 رنگ پوست", callback_data="cp_skin_color")],
+        [InlineKeyboardButton(text="🎓 تحصیلات", callback_data="cp_education")],
+        [InlineKeyboardButton(text="🔙 بازگشت به پروفایل", callback_data="back_profile")]
+    ])
+
+
+def interactions_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Likers ❤️", callback_data="view_likers"),
+            InlineKeyboardButton(text="Matches 💕", callback_data="view_matches_list")
+        ],
+        [
+            InlineKeyboardButton(text="💌 لایک‌های ارسالی", callback_data="view_sent_likes"),
+            InlineKeyboardButton(text="🚫 بلاک‌شده‌ها", callback_data="view_blocked")
+        ],
+        [InlineKeyboardButton(text="🗑️ پاک کردن دیسلایک‌ها", callback_data="clear_dislikes")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_profile")]
+    ])
 
 
 def back_to_menu_kb():
@@ -214,11 +274,24 @@ def chat_request_kb(from_user_id: int, request_id: int):
 
 def diamonds_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 دریافت الماس رایگان روزانه", callback_data="daily_diamond")],
-        [InlineKeyboardButton(text="🔥 جایزه 3 روز متوالی (10 💎)", callback_data="streak_3")],
-        [InlineKeyboardButton(text="🔥 جایزه 7 روز متوالی (30 💎)", callback_data="streak_7")],
-        [InlineKeyboardButton(text="🔥 جایزه 30 روز متوالی (70 💎)", callback_data="streak_30")],
-        [InlineKeyboardButton(text="🛒 خرید الماس", callback_data="buy_diamonds")],
+        [InlineKeyboardButton(text="🌙 دریافت الماس روزانه", callback_data="daily_diamond")],
+        [InlineKeyboardButton(text="🎁 وظایف الماسی", callback_data="diamond_tasks")],
+        [
+            InlineKeyboardButton(text="📜 تاریخچه تراکنش‌ها", callback_data="transaction_history"),
+            InlineKeyboardButton(text="🛒 خرید الماس", callback_data="buy_diamonds")
+        ],
+        [InlineKeyboardButton(text="👥 معرفی دوستان", callback_data="referral_link")],
+        [InlineKeyboardButton(text="💎 الماس رایگان", callback_data="free_diamond_info")]
+    ])
+
+
+def diamond_tasks_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 جوین کانال رسمی (3 💎)", callback_data="task_join_channel")],
+        [InlineKeyboardButton(text="💬 کامنت زیر آخرین پست (4 💎)", callback_data="task_comment")],
+        [InlineKeyboardButton(text="👍 ری‌اکشن به 5 پست اخیر (2 💎)", callback_data="task_react")],
+        [InlineKeyboardButton(text="📣 جوین کانال اسپانسر (6 💎)", callback_data="task_sponsor")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_diamonds")]
     ])
 
 

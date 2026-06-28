@@ -39,3 +39,19 @@ class Support(StatesGroup):
 class Profile(StatesGroup):
     editing_name = State()
     editing_bio = State()
+    editing_age = State()
+    editing_height = State()
+    editing_eye_color = State()
+    editing_exercise = State()
+    editing_relationship = State()
+    editing_job = State()
+    editing_zodiac = State()
+    editing_personality = State()
+    editing_skin_color = State()
+    editing_education = State()
+    editing_location = State()
+    editing_location_city = State()
+
+
+class Report(StatesGroup):
+    waiting_reason = State()
