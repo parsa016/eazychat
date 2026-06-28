@@ -3,8 +3,9 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.client.session.aiohttp import AiohttpSession
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, PROXY_URL
 from bot.database import db
 from bot.handlers import registration, verification, profile_completion, search, direct_message, matches, profile, admin
 
@@ -25,7 +26,13 @@ async def on_shutdown(bot: Bot):
 
 
 async def main():
-    bot = Bot(token=BOT_TOKEN)
+    # Setup proxy if configured
+    session = None
+    if PROXY_URL:
+        session = AiohttpSession(proxy=PROXY_URL)
+        logger.info(f"Using proxy: {PROXY_URL}")
+
+    bot = Bot(token=BOT_TOKEN, session=session)
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 

@@ -15,3 +15,6 @@ DB_NAME = os.getenv("DB_NAME", "eazychat")
 DAILY_VIEW_LIMIT = int(os.getenv("DAILY_VIEW_LIMIT", "15"))
 DAILY_LIKE_LIMIT = int(os.getenv("DAILY_LIKE_LIMIT", "10"))
 DIRECT_MESSAGE_COST = int(os.getenv("DIRECT_MESSAGE_COST", "2"))
+
+# Proxy settings (for Iran/filtered networks)
+PROXY_URL = os.getenv("PROXY_URL", "")  # e.g. "http://127.0.0.1:10808" or "socks5://127.0.0.1:10808"
