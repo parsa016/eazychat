@@ -18,6 +18,20 @@ async def on_startup(bot: Bot):
     logger.info("Database connected!")
     logger.info("Bot started!")
 
+    # Broadcast to all users that bot is online
+    try:
+        users = await db.fetchall("SELECT id FROM users WHERE is_active = 1")
+        sent = 0
+        for user in users:
+            try:
+                await bot.send_message(user['id'], "🟢 ربات در دسترس قرار گرفت!")
+                sent += 1
+            except Exception:
+                pass
+        logger.info(f"Startup broadcast sent to {sent} users")
+    except Exception as e:
+        logger.error(f"Startup broadcast failed: {e}")
+
 
 async def on_shutdown(bot: Bot):
     await db.close()

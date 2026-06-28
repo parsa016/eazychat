@@ -3,8 +3,8 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 
 from bot.database import db
-from bot.states.registration import Admin
-from bot.keyboards.main_kb import verification_admin_kb, purpose_kb
+from bot.states.registration import Admin, Registration
+from bot.keyboards.main_kb import verification_admin_kb, purpose_kb, main_menu_kb
 from config import ADMIN_IDS, VERIFICATION_GROUP_ID
 
 router = Router()
@@ -22,26 +22,41 @@ async def approve_verification(callback: CallbackQuery):
         return
 
     await db.update_verification(verification_id, 'approved', callback.from_user.id)
-    await db.update_user(user_id, is_verified=1, registration_step='purpose')
+
+    # Check user step - if waiting_verification, move to purpose
+    user = await db.get_user(user_id)
+    if user and user['registration_step'] == 'waiting_verification':
+        await db.update_user(user_id, is_verified=1, registration_step='purpose')
+        try:
+            await callback.bot.send_message(
+                user_id,
+                "🎉 احراز هویتت تأیید شد! ✅\n\nحالا هدفت از اومدن تو ربات رو انتخاب کن:",
+                reply_markup=purpose_kb()
+            )
+        except Exception:
+            pass
+    else:
+        await db.update_user(user_id, is_verified=1)
+        try:
+            await callback.bot.send_message(
+                user_id,
+                "🎉 احراز هویتت تأیید شد! ✅\nحالا کنار اسمت تیک سبز نمایش داده میشه.",
+                reply_markup=main_menu_kb()
+            )
+        except Exception:
+            pass
 
     try:
         await callback.message.edit_caption(
             caption=f"✅ تأیید شد توسط {callback.from_user.full_name}"
         )
     except Exception:
-        await callback.message.edit_text(
-            f"✅ تأیید شد توسط {callback.from_user.full_name}"
-        )
-
-    # Notify user
-    try:
-        await callback.bot.send_message(
-            user_id,
-            "🎉 احراز هویتت تأیید شد!\n\nحالا هدفت از اومدن تو ربات رو انتخاب کن:",
-            reply_markup=purpose_kb()
-        )
-    except Exception:
-        pass
+        try:
+            await callback.message.edit_text(
+                f"✅ تأیید شد توسط {callback.from_user.full_name}"
+            )
+        except Exception:
+            pass
 
     await callback.answer("✅ تأیید شد!")
 
@@ -89,5 +104,5 @@ async def process_rejection_reason(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    await message.answer(f"✅ رد شد. کاربر مطلع شد.")
+    await message.answer("✅ رد شد. کاربر مطلع شد.")
     await state.clear()

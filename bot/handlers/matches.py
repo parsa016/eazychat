@@ -17,6 +17,13 @@ router = Router()
 @router.message(F.text == "💑 جفت‌شده‌ها")
 async def view_matches(message: Message):
     user_id = message.from_user.id
+    user = await db.get_user(user_id)
+    if user and not user['is_verified']:
+        await message.answer(
+            "🔒 برای دیدن جفت‌شده‌ها باید احراز هویت کنی!\n"
+            "از بخش «👤 پروفایل من» می‌تونی احراز هویت کنی."
+        )
+        return
     matches = await db.get_matches(user_id)
 
     if not matches:
@@ -45,6 +52,13 @@ async def view_matches(message: Message):
 @router.message(F.text == "❤️ لایک‌های من")
 async def view_likes(message: Message):
     user_id = message.from_user.id
+    user = await db.get_user(user_id)
+    if user and not user['is_verified']:
+        await message.answer(
+            "🔒 برای دیدن لایک‌هات باید احراز هویت کنی!\n"
+            "از بخش «👤 پروفایل من» می‌تونی احراز هویت کنی."
+        )
+        return
     likers = await db.get_who_liked_me(user_id)
 
     if not likers:

@@ -3,8 +3,9 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from bot.database import db
-from bot.states.registration import Profile
-from bot.keyboards.main_kb import my_profile_kb, main_menu_kb, diamonds_kb
+from bot.states.registration import Profile, Registration
+from bot.keyboards.main_kb import my_profile_kb, main_menu_kb, diamonds_kb, verification_optional_kb
+from config import ADMIN_IDS, VERIFICATION_GROUP_ID
 
 router = Router()
 
@@ -36,16 +37,15 @@ async def view_profile(message: Message):
     views_r, likes_r, attract_pct = await db.get_attractiveness(user_id)
     views_s, likes_s, picky_pct = await db.get_pickiness(user_id)
 
+    verified_badge = " ✅" if user['is_verified'] else ""
     text = (
-        f"👤 پروفایل من\n"
-        f"━━━━━━━━━━━━\n"
-        f"📛 اسم: {user['name']}\n"
-        f"{gender_text} | 🎂 {user['age']} ساله\n"
-        f"📍 {user['province']}، {user['city']}\n"
-        f"🎯 {purpose_map.get(user.get('purpose'), '—')}\n"
+        f"{'✅' if user['is_verified'] else '😶'} {user['name']} ({user['age']}) | {gender_text}{verified_badge}\n"
+        f"📍 {user['province']} - {user['city']}\n"
     )
     if user.get('bio'):
         text += f"📝 {user['bio']}\n"
+
+    text += f"\n🎯 {purpose_map.get(user.get('purpose'), '—')}\n"
 
     if interests:
         interests_text = " | ".join(interest_map.get(i, i) for i in interests)
@@ -54,20 +54,37 @@ async def view_profile(message: Message):
     text += (
         f"\n━━━━━━━━━━━━\n"
         f"💎 الماس: {user['diamonds']}\n"
-        f"⭐ پرمیوم: {'✅ فعال' if user['is_premium'] else '❌ غیرفعال'}\n"
+        f"⭐ پرمیوم: {'فعال' if user['is_premium'] else 'غیرفعال'}\n"
         f"\n📊 آمار:\n"
-        f"✨ جذابیت: از {views_r} نفری که دیدنت، {likes_r} نفر ({attract_pct}%) لایکت کردن\n"
-        f"🎯 سخت‌پسندی: از {views_s} نفر که دیدی، {likes_s} نفر ({picky_pct}%) رو لایک کردی\n"
+        f"✨ جذابیت: از {views_r} نفر، {likes_r} نفر ({attract_pct}%) لایکت کردن\n"
+        f"🎯 سخت‌پسندی: از {views_s} نفر، {likes_s} نفر ({picky_pct}%) رو لایک کردی\n"
     )
 
     if photos:
         await message.answer_photo(
             photos[0]['file_id'],
             caption=text,
-            reply_markup=my_profile_kb()
+            reply_markup=my_profile_kb(user['is_verified'])
         )
     else:
-        await message.answer(text, reply_markup=my_profile_kb())
+        await message.answer(text, reply_markup=my_profile_kb(user['is_verified']))
+
+
+# ============ START VERIFICATION FROM PROFILE ============
+
+@router.callback_query(F.data == "start_verification")
+async def start_verification_from_profile(callback: CallbackQuery, state: FSMContext):
+    user = await db.get_user(callback.from_user.id)
+    if user and user['is_verified']:
+        await callback.answer("✅ قبلاً احراز هویت کردی!", show_alert=True)
+        return
+    await state.set_state(Registration.verification_video)
+    await callback.message.answer(
+        "🎥 یه ویدیو مسیج بفرست و توش بگو:\n\n"
+        "«احراز هویت در ربات ایزی‌چت»\n\n"
+        "⚠️ صورتت باید مشخص باشه و شبیه عکس پروفایلت باشه."
+    )
+    await callback.answer()
 
 
 # ============ EDIT NAME ============
@@ -122,7 +139,6 @@ async def start_edit_photos(callback: CallbackQuery):
         "برای تغییر عکس‌ها، عکس جدید بفرست.\nقبلی‌ها حذف میشن.",
         show_alert=True
     )
-    # TODO: implement full photo edit flow
 
 
 # ============ EDIT PURPOSE ============
@@ -186,6 +202,18 @@ async def claim_streak(callback: CallbackQuery):
     await callback.answer(msg, show_alert=True)
 
 
+# ============ BUY DIAMONDS ============
+
+@router.callback_query(F.data == "buy_diamonds")
+async def buy_diamonds(callback: CallbackQuery):
+    text = (
+        "🛒 خرید الماس:\n\n"
+        "برای خرید الماس با پشتیبانی تماس بگیر.\n"
+        "از منوی اصلی «📞 پشتیبانی» رو بزن."
+    )
+    await callback.answer(text, show_alert=True)
+
+
 # ============ PREMIUM ============
 
 @router.message(F.text == "⭐ اشتراک پرمیوم")
@@ -210,10 +238,7 @@ async def support_start(message: Message, state: FSMContext):
     from bot.states.registration import Support
     await message.answer(
         "📞 پشتیبانی ایزی‌چت:\n\n"
-        "• مشکل فنی\n"
-        "• گزارش تخلف\n"
-        "• خرید سکه و اشتراک\n\n"
-        "پیامت رو اینجا بنویس و ادمین بهت جواب میده.\n"
+        "پیامت رو بنویس و ادمین بهت جواب میده.\n"
         "برای بازگشت /cancel بزن."
     )
     await state.set_state(Support.waiting_message)
@@ -231,7 +256,6 @@ async def process_support_message(message: Message, state: FSMContext):
 
     user_id = message.from_user.id
     user = await db.get_user(user_id)
-    from config import ADMIN_IDS
 
     # Forward to all admins
     for admin_id in ADMIN_IDS:

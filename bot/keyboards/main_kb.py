@@ -1,5 +1,5 @@
 from aiogram.types import (
-    ReplyKeyboardMarkup, KeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
     InlineKeyboardMarkup, InlineKeyboardButton
 )
 
@@ -21,8 +21,33 @@ def phone_kb():
         keyboard=[
             [KeyboardButton(text="📱 ارسال شماره موبایل", request_contact=True)]
         ],
-        resize_keyboard=True
+        resize_keyboard=True,
+        one_time_keyboard=True
     )
+
+
+def remove_kb():
+    return ReplyKeyboardRemove()
+
+
+def province_kb(provinces: list):
+    keyboard = []
+    for i in range(0, len(provinces), 2):
+        row = []
+        for j in range(i, min(i + 2, len(provinces))):
+            row.append(KeyboardButton(text=provinces[j]))
+        keyboard.append(row)
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def city_kb(cities: list):
+    keyboard = []
+    for i in range(0, len(cities), 3):
+        row = []
+        for j in range(i, min(i + 3, len(cities))):
+            row.append(KeyboardButton(text=cities[j]))
+        keyboard.append(row)
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 def gender_kb():
@@ -135,20 +160,32 @@ def verification_admin_kb(user_id: int, verification_id: int):
     ])
 
 
-def photos_done_kb():
+def verification_optional_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ تمام، ادامه بده", callback_data="photos_done")]
+        [InlineKeyboardButton(text="🎥 ارسال ویدیو احراز هویت", callback_data="start_verification")],
+        [InlineKeyboardButton(text="⏭️ فعلاً انجام نمیدم", callback_data="skip_verification")]
     ])
 
 
-def my_profile_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
+def photos_done_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="✅ تمام، ادامه بده")]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
+
+def my_profile_kb(is_verified: bool = False):
+    keyboard = [
         [InlineKeyboardButton(text="✏️ ویرایش اسم", callback_data="edit_name")],
         [InlineKeyboardButton(text="📝 ویرایش بیو", callback_data="edit_bio")],
         [InlineKeyboardButton(text="📸 تغییر عکس‌ها", callback_data="edit_photos")],
         [InlineKeyboardButton(text="🎯 تغییر هدف", callback_data="edit_purpose")],
         [InlineKeyboardButton(text="💡 تغییر علاقه‌مندی‌ها", callback_data="edit_interests")],
-    ])
+    ]
+    if not is_verified:
+        keyboard.append([InlineKeyboardButton(text="🎥 احراز هویت", callback_data="start_verification")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def back_to_menu_kb():
@@ -181,4 +218,14 @@ def diamonds_kb():
         [InlineKeyboardButton(text="🔥 جایزه 3 روز متوالی (10 💎)", callback_data="streak_3")],
         [InlineKeyboardButton(text="🔥 جایزه 7 روز متوالی (30 💎)", callback_data="streak_7")],
         [InlineKeyboardButton(text="🔥 جایزه 30 روز متوالی (70 💎)", callback_data="streak_30")],
+        [InlineKeyboardButton(text="🛒 خرید الماس", callback_data="buy_diamonds")],
+    ])
+
+
+def admin_group_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 آمار", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="⏳ احرازهای منتظر", callback_data="admin_pending")],
+        [InlineKeyboardButton(text="📢 پیام همگانی", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="🔍 جستجوی کاربر", callback_data="admin_search_user")],
     ])

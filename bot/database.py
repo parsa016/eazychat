@@ -435,6 +435,24 @@ class Database:
             (from_id, to_id, text, cost)
         )
 
+    # ============ DELETE USER ============
+
+    async def delete_user(self, user_id: int):
+        await self.execute("DELETE FROM user_photos WHERE user_id = %s", (user_id,))
+        await self.execute("DELETE FROM user_interests WHERE user_id = %s", (user_id,))
+        await self.execute("DELETE FROM likes WHERE from_user_id = %s OR to_user_id = %s", (user_id, user_id))
+        await self.execute("DELETE FROM rejects WHERE from_user_id = %s OR to_user_id = %s", (user_id, user_id))
+        await self.execute("DELETE FROM matches WHERE user1_id = %s OR user2_id = %s", (user_id, user_id))
+        await self.execute("DELETE FROM chat_requests WHERE from_user_id = %s OR to_user_id = %s", (user_id, user_id))
+        await self.execute("DELETE FROM direct_messages WHERE from_user_id = %s OR to_user_id = %s", (user_id, user_id))
+        await self.execute("DELETE FROM messages WHERE from_user_id = %s OR to_user_id = %s", (user_id, user_id))
+        await self.execute("DELETE FROM diamond_transactions WHERE user_id = %s", (user_id,))
+        await self.execute("DELETE FROM search_history WHERE user_id = %s", (user_id,))
+        await self.execute("DELETE FROM daily_usage WHERE user_id = %s", (user_id,))
+        await self.execute("DELETE FROM verifications WHERE user_id = %s", (user_id,))
+        await self.execute("DELETE FROM referrals WHERE referrer_id = %s OR referred_id = %s", (user_id, user_id))
+        await self.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
     # ============ STATS ============
 
     async def get_attractiveness(self, user_id: int):

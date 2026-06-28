@@ -16,8 +16,8 @@ router = Router()
 @router.message(F.text == "🔍 جستجو")
 async def search_start(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
-    if not user or not user['is_verified']:
-        await message.answer("❌ ابتدا باید ثبت‌نام و احراز هویتت رو تکمیل کنی.")
+    if not user:
+        await message.answer("❌ ابتدا ثبت‌نام کن! /start")
         return
     if user['registration_step'] != 'completed':
         await message.answer("❌ ابتدا باید پروفایلت رو تکمیل کنی.")
@@ -142,8 +142,9 @@ async def send_profile_card(message: Message, profile: dict, is_premium: bool = 
         'travel': '✈️ سفر', 'cooking': '🍳 آشپزی', 'photography': '📸 عکاسی'
     }
 
+    verified_badge = " ✅" if profile.get('is_verified') else ""
     text = (
-        f"👤 {profile['name']}\n"
+        f"👤 {profile['name']}{verified_badge}\n"
         f"{gender_text} | 🎂 {profile['age']} ساله\n"
         f"📍 {profile['province']}، {profile['city']}\n"
         f"🎯 {purpose_map.get(profile['purpose'], '')}\n"
