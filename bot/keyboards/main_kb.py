@@ -285,6 +285,39 @@ def diamonds_kb():
     ])
 
 
+async def diamonds_kb_with_timer(user):
+    from datetime import datetime, date, timedelta
+
+    # Check if daily diamond is available
+    daily_available = True
+    timer_text = "🌙 دریافت الماس روزانه"
+
+    if user.get('last_daily_claim'):
+        claim_date = user['last_daily_claim']
+        if hasattr(claim_date, 'date'):
+            claim_date = claim_date.date()
+        today = date.today()
+        if claim_date == today:
+            daily_available = False
+            now = datetime.now()
+            tomorrow = datetime.combine(today + timedelta(days=1), datetime.min.time())
+            remaining = tomorrow - now
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            timer_text = f"⏳ {hours}:{minutes:02d} تا الماس بعدی"
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=timer_text, callback_data="daily_diamond")],
+        [InlineKeyboardButton(text="🎁 وظایف الماسی", callback_data="diamond_tasks")],
+        [
+            InlineKeyboardButton(text="📜 تاریخچه تراکنش‌ها", callback_data="transaction_history"),
+            InlineKeyboardButton(text="🛒 خرید الماس", callback_data="buy_diamonds")
+        ],
+        [InlineKeyboardButton(text="👥 معرفی دوستان", callback_data="referral_link")],
+        [InlineKeyboardButton(text="💎 الماس رایگان", callback_data="free_diamond_info")]
+    ])
+
+
 def diamond_tasks_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📢 جوین کانال رسمی (3 💎)", callback_data="task_join_channel")],
@@ -293,6 +326,23 @@ def diamond_tasks_kb():
         [InlineKeyboardButton(text="📣 جوین کانال اسپانسر (6 💎)", callback_data="task_sponsor")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_diamonds")]
     ])
+
+
+def diamond_tasks_kb_checked(completed_types: set):
+    tasks = [
+        ("join_channel", "📢 جوین کانال رسمی (3 💎)", "task_join_channel"),
+        ("comment", "💬 کامنت زیر آخرین پست (4 💎)", "task_comment"),
+        ("react", "👍 ری‌اکشن به 5 پست اخیر (2 💎)", "task_react"),
+        ("sponsor", "📣 جوین کانال اسپانسر (6 💎)", "task_sponsor"),
+    ]
+    buttons = []
+    for task_type, label, callback_data in tasks:
+        if task_type in completed_types:
+            buttons.append([InlineKeyboardButton(text=f"✅ {label}", callback_data=callback_data)])
+        else:
+            buttons.append([InlineKeyboardButton(text=label, callback_data=callback_data)])
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_diamonds")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def admin_group_kb():

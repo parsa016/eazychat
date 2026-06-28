@@ -24,5 +24,9 @@ PROFILE_COMPLETE_BONUS = int(os.getenv("PROFILE_COMPLETE_BONUS", "8"))
 REFERRAL_BONUS = int(os.getenv("REFERRAL_BONUS", "10"))
 REFERRAL_PURCHASE_PERCENT = int(os.getenv("REFERRAL_PURCHASE_PERCENT", "10"))
 
+# Channel settings (for diamond tasks verification)
+CHANNEL_ID = os.getenv("CHANNEL_ID", "")  # @username or -100xxxx
+SPONSOR_CHANNEL_ID = os.getenv("SPONSOR_CHANNEL_ID", "")  # @username or -100xxxx
+
 # Proxy settings (for Iran/filtered networks)
 PROXY_URL = os.getenv("PROXY_URL", "")

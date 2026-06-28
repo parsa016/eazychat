@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from bot.database import db
 from bot.states.registration import Admin
 from bot.keyboards.main_kb import admin_group_kb, verification_admin_kb
-from config import ADMIN_IDS
+from config import ADMIN_IDS, VERIFICATION_GROUP_ID
 
 router = Router()
 
@@ -209,6 +209,23 @@ async def admin_reviewing_handler(message: Message, state: FSMContext):
         target_id = data.get('target_user_id')
         await db.add_diamonds(target_id, amount, 'gift', 'هدیه از ادمین')
         await message.answer(f"✅ {amount} الماس به کاربر {target_id} اضافه شد.")
+        # Notify user
+        try:
+            await message.bot.send_message(
+                target_id,
+                f"🎁 {amount} الماس از طرف ادمین به حسابت اضافه شد! 💎"
+            )
+        except Exception:
+            pass
+        # Send to group
+        if VERIFICATION_GROUP_ID:
+            try:
+                await message.bot.send_message(
+                    VERIFICATION_GROUP_ID,
+                    f"💎 {amount} الماس به کاربر {target_id} اضافه شد (توسط ادمین {message.from_user.full_name})"
+                )
+            except Exception:
+                pass
         await state.clear()
 
     elif action == 'setpremium':
@@ -222,6 +239,24 @@ async def admin_reviewing_handler(message: Message, state: FSMContext):
         expires = datetime.now() + timedelta(days=days)
         await db.update_user(target_id, is_premium=1, premium_expires_at=expires)
         await message.answer(f"✅ پرمیوم {days} روزه برای کاربر {target_id} فعال شد.")
+        # Notify user
+        try:
+            await message.bot.send_message(
+                target_id,
+                f"⭐ اشتراک پرمیوم {days} روزه برای حسابت فعال شد!\n"
+                f"از مزایای ویژه لذت ببر 🎉"
+            )
+        except Exception:
+            pass
+        # Send to group
+        if VERIFICATION_GROUP_ID:
+            try:
+                await message.bot.send_message(
+                    VERIFICATION_GROUP_ID,
+                    f"⭐ پرمیوم {days} روزه برای کاربر {target_id} فعال شد (توسط ادمین {message.from_user.full_name})"
+                )
+            except Exception:
+                pass
         await state.clear()
 
 
@@ -284,6 +319,10 @@ async def cmd_add_diamonds(message: Message):
         return
     await db.add_diamonds(user_id, amount, 'gift', 'هدیه از ادمین')
     await message.answer(f"✅ {amount} الماس به کاربر {user_id} اضافه شد.")
+    try:
+        await message.bot.send_message(user_id, f"🎁 {amount} الماس از طرف ادمین به حسابت اضافه شد! 💎")
+    except Exception:
+        pass
 
 
 @router.message(Command("setpremium"))
@@ -304,6 +343,13 @@ async def cmd_set_premium(message: Message):
     expires = datetime.now() + timedelta(days=days)
     await db.update_user(user_id, is_premium=1, premium_expires_at=expires)
     await message.answer(f"✅ پرمیوم {days} روزه برای کاربر {user_id} فعال شد.")
+    try:
+        await message.bot.send_message(
+            user_id,
+            f"⭐ اشتراک پرمیوم {days} روزه برای حسابت فعال شد!\nاز مزایای ویژه لذت ببر 🎉"
+        )
+    except Exception:
+        pass
 
 
 @router.message(Command("reply"))

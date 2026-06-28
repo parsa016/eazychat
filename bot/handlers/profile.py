@@ -592,7 +592,10 @@ async def view_diamonds(message: Message):
         f"{medal_text}"
     )
 
-    await message.answer(text, reply_markup=diamonds_kb())
+    # Build keyboard with timer for daily diamond
+    from bot.keyboards.main_kb import diamonds_kb_with_timer
+    kb = await diamonds_kb_with_timer(user)
+    await message.answer(text, reply_markup=kb)
 
 
 # ============ DAILY DIAMOND ============
@@ -602,73 +605,168 @@ async def claim_daily(callback: CallbackQuery):
     success = await db.claim_daily_diamond(callback.from_user.id)
     if success:
         await callback.answer("🎁 1 الماس رایگان دریافت کردی!", show_alert=True)
+        # Refresh keyboard with timer
+        user = await db.get_user(callback.from_user.id)
+        from bot.keyboards.main_kb import diamonds_kb_with_timer
+        kb = await diamonds_kb_with_timer(user)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=kb)
+        except Exception:
+            pass
     else:
-        await callback.answer("❌ امروز قبلاً دریافت کردی! فردا بیا.", show_alert=True)
+        # Show remaining time
+        user = await db.get_user(callback.from_user.id)
+        from datetime import datetime, date, timedelta
+        if user['last_daily_claim']:
+            now = datetime.now()
+            claim_date = user['last_daily_claim']
+            if hasattr(claim_date, 'date'):
+                claim_date = claim_date.date()
+            tomorrow = datetime.combine(claim_date + timedelta(days=1), datetime.min.time())
+            remaining = tomorrow - now
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            await callback.answer(f"⏳ {hours} ساعت و {minutes} دقیقه تا الماس بعدی!", show_alert=True)
+        else:
+            await callback.answer("❌ امروز قبلاً دریافت کردی! فردا بیا.", show_alert=True)
 
 
 # ============ DIAMOND TASKS ============
 
 @router.callback_query(F.data == "diamond_tasks")
 async def show_diamond_tasks(callback: CallbackQuery):
-    await callback.message.answer("🎁 وظایف الماسی:\n\nهر وظیفه رو انجام بده و الماس بگیر!", reply_markup=diamond_tasks_kb())
+    user_id = callback.from_user.id
+    # Get completed tasks
+    completed = await db.fetchall(
+        "SELECT task_type FROM diamond_tasks WHERE user_id = %s",
+        (user_id,)
+    )
+    completed_types = set(r['task_type'] for r in completed) if completed else set()
+    from bot.keyboards.main_kb import diamond_tasks_kb_checked
+    await callback.message.answer(
+        "🎁 وظایف الماسی:\n\nهر وظیفه رو انجام بده و الماس بگیر!\n⚠️ هر وظیفه فقط یکبار قابل انجامه.",
+        reply_markup=diamond_tasks_kb_checked(completed_types)
+    )
     await callback.answer()
 
 
 @router.callback_query(F.data == "task_join_channel")
 async def task_join_channel(callback: CallbackQuery):
-    # Check if already done today
+    from config import CHANNEL_ID
+    user_id = callback.from_user.id
+
+    # Check if already done (one-time only)
     done = await db.fetchone(
-        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'join_channel' AND DATE(completed_at) = CURDATE()",
-        (callback.from_user.id,)
+        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'join_channel'",
+        (user_id,)
     )
     if done:
-        await callback.answer("❌ این وظیفه رو امروز انجام دادی!", show_alert=True)
+        await callback.answer("✅ این وظیفه رو قبلاً انجام دادی!", show_alert=True)
         return
-    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (callback.from_user.id, 'join_channel'))
-    await db.add_diamonds(callback.from_user.id, 3, 'gift', 'وظیفه: جوین کانال')
+
+    # Verify membership
+    if CHANNEL_ID:
+        try:
+            channel_id = int(CHANNEL_ID) if CHANNEL_ID.lstrip('-').isdigit() else CHANNEL_ID
+            member = await callback.bot.get_chat_member(channel_id, user_id)
+            if member.status in ('left', 'kicked'):
+                await callback.answer("❌ اول باید در کانال جوین شی! بعد دوباره بزن.", show_alert=True)
+                return
+        except Exception:
+            pass
+
+    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (user_id, 'join_channel'))
+    await db.add_diamonds(user_id, 3, 'gift', 'وظیفه: جوین کانال')
     await callback.answer("✅ 3 الماس دریافت کردی! ممنون از جوین شدنت 💎", show_alert=True)
+    # Refresh tasks kb
+    completed = await db.fetchall("SELECT task_type FROM diamond_tasks WHERE user_id = %s", (user_id,))
+    completed_types = set(r['task_type'] for r in completed)
+    from bot.keyboards.main_kb import diamond_tasks_kb_checked
+    try:
+        await callback.message.edit_reply_markup(reply_markup=diamond_tasks_kb_checked(completed_types))
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data == "task_comment")
 async def task_comment(callback: CallbackQuery):
+    user_id = callback.from_user.id
     done = await db.fetchone(
-        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'comment' AND DATE(completed_at) = CURDATE()",
-        (callback.from_user.id,)
+        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'comment'",
+        (user_id,)
     )
     if done:
-        await callback.answer("❌ این وظیفه رو امروز انجام دادی!", show_alert=True)
+        await callback.answer("✅ این وظیفه رو قبلاً انجام دادی!", show_alert=True)
         return
-    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (callback.from_user.id, 'comment'))
-    await db.add_diamonds(callback.from_user.id, 4, 'gift', 'وظیفه: کامنت')
+    # Comment verification is manual — trust the user
+    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (user_id, 'comment'))
+    await db.add_diamonds(user_id, 4, 'gift', 'وظیفه: کامنت')
     await callback.answer("✅ 4 الماس دریافت کردی! ممنون 💎", show_alert=True)
+    completed = await db.fetchall("SELECT task_type FROM diamond_tasks WHERE user_id = %s", (user_id,))
+    completed_types = set(r['task_type'] for r in completed)
+    from bot.keyboards.main_kb import diamond_tasks_kb_checked
+    try:
+        await callback.message.edit_reply_markup(reply_markup=diamond_tasks_kb_checked(completed_types))
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data == "task_react")
 async def task_react(callback: CallbackQuery):
+    user_id = callback.from_user.id
     done = await db.fetchone(
-        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'react' AND DATE(completed_at) = CURDATE()",
-        (callback.from_user.id,)
+        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'react'",
+        (user_id,)
     )
     if done:
-        await callback.answer("❌ این وظیفه رو امروز انجام دادی!", show_alert=True)
+        await callback.answer("✅ این وظیفه رو قبلاً انجام دادی!", show_alert=True)
         return
-    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (callback.from_user.id, 'react'))
-    await db.add_diamonds(callback.from_user.id, 2, 'gift', 'وظیفه: ری‌اکشن')
+    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (user_id, 'react'))
+    await db.add_diamonds(user_id, 2, 'gift', 'وظیفه: ری‌اکشن')
     await callback.answer("✅ 2 الماس دریافت کردی! 💎", show_alert=True)
+    completed = await db.fetchall("SELECT task_type FROM diamond_tasks WHERE user_id = %s", (user_id,))
+    completed_types = set(r['task_type'] for r in completed)
+    from bot.keyboards.main_kb import diamond_tasks_kb_checked
+    try:
+        await callback.message.edit_reply_markup(reply_markup=diamond_tasks_kb_checked(completed_types))
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data == "task_sponsor")
 async def task_sponsor(callback: CallbackQuery):
+    from config import SPONSOR_CHANNEL_ID
+    user_id = callback.from_user.id
+
     done = await db.fetchone(
-        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'sponsor' AND DATE(completed_at) = CURDATE()",
-        (callback.from_user.id,)
+        "SELECT id FROM diamond_tasks WHERE user_id = %s AND task_type = 'sponsor'",
+        (user_id,)
     )
     if done:
-        await callback.answer("❌ این وظیفه رو امروز انجام دادی!", show_alert=True)
+        await callback.answer("✅ این وظیفه رو قبلاً انجام دادی!", show_alert=True)
         return
-    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (callback.from_user.id, 'sponsor'))
-    await db.add_diamonds(callback.from_user.id, 6, 'gift', 'وظیفه: جوین اسپانسر')
+
+    # Verify membership in sponsor channel
+    if SPONSOR_CHANNEL_ID:
+        try:
+            channel_id = int(SPONSOR_CHANNEL_ID) if SPONSOR_CHANNEL_ID.lstrip('-').isdigit() else SPONSOR_CHANNEL_ID
+            member = await callback.bot.get_chat_member(channel_id, user_id)
+            if member.status in ('left', 'kicked'):
+                await callback.answer("❌ اول باید در کانال اسپانسر جوین شی! بعد دوباره بزن.", show_alert=True)
+                return
+        except Exception:
+            pass
+
+    await db.execute("INSERT INTO diamond_tasks (user_id, task_type) VALUES (%s, %s)", (user_id, 'sponsor'))
+    await db.add_diamonds(user_id, 6, 'gift', 'وظیفه: جوین اسپانسر')
     await callback.answer("✅ 6 الماس دریافت کردی! 💎", show_alert=True)
+    completed = await db.fetchall("SELECT task_type FROM diamond_tasks WHERE user_id = %s", (user_id,))
+    completed_types = set(r['task_type'] for r in completed)
+    from bot.keyboards.main_kb import diamond_tasks_kb_checked
+    try:
+        await callback.message.edit_reply_markup(reply_markup=diamond_tasks_kb_checked(completed_types))
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data == "back_diamonds")
@@ -761,13 +859,34 @@ async def claim_streak(callback: CallbackQuery):
 @router.message(F.text == "⭐ اشتراک پرمیوم")
 async def view_premium(message: Message):
     user = await db.get_user(message.from_user.id)
-    status = "✅ فعال" if user['is_premium'] else "❌ غیرفعال"
+
+    if user['is_premium']:
+        from datetime import datetime
+        status = "✅ فعال"
+        remaining = ""
+        if user.get('premium_expires_at'):
+            expires = user['premium_expires_at']
+            if isinstance(expires, str):
+                expires = datetime.fromisoformat(expires)
+            now = datetime.now()
+            delta = expires - now
+            days_left = max(0, delta.days)
+            remaining = f"\n📅 روزهای باقیمانده: {days_left} روز"
+    else:
+        status = "❌ غیرفعال"
+        remaining = ""
+
     text = (
-        f"⭐ اشتراک پرمیوم: {status}\n\n"
-        f"مزایای پرمیوم:\n"
-        f"• جستجوی نامحدود (بدون محدودیت روزانه)\n"
-        f"• لایک نامحدود\n"
-        f"• دکمه بازگشت در اکسپلور\n\n"
+        f"⭐ اشتراک پرمیوم: {status}{remaining}\n\n"
+        f"✨ مزایای پرمیوم:\n"
+        f"• 🔍 جستجوی نامحدود (بدون محدودیت روزانه)\n"
+        f"• ❤️ لایک نامحدود\n"
+        f"• 🔙 دکمه بازگشت در اکسپلور\n"
+        f"• 👁️ بیشتر دیده شدن در اکسپلور (اولویت نمایش)\n"
+        f"• 🚫 عدم نمایش تبلیغات\n"
+        f"• 🎯 دسترسی به فیلترهای پیشرفته جستجو\n"
+        f"• 💎 2 برابر الماس روزانه رایگان\n"
+        f"• 👻 مشاهده پروفایل بدون اینکه طرف بفهمه\n\n"
         f"برای خرید اشتراک با پشتیبانی تماس بگیر."
     )
     await message.answer(text)
