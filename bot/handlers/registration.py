@@ -11,7 +11,7 @@ from bot.keyboards.main_kb import (
     remove_kb, province_kb, city_kb, verification_optional_kb
 )
 from bot.data.cities import get_provinces, get_cities, is_valid_province, is_valid_city
-from config import ADMIN_IDS, VERIFICATION_GROUP_ID, SIGNUP_BONUS, PROFILE_COMPLETE_BONUS
+from config import ADMIN_IDS, VERIFICATION_GROUP_ID, SIGNUP_BONUS, PROFILE_COMPLETE_BONUS, CHANNEL_ID
 
 router = Router()
 
@@ -19,6 +19,27 @@ router = Router()
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
+
+    # Forced channel join check
+    if CHANNEL_ID:
+        try:
+            channel_id = int(CHANNEL_ID) if CHANNEL_ID.lstrip('-').isdigit() else CHANNEL_ID
+            member = await message.bot.get_chat_member(channel_id, user_id)
+            if member.status in ('left', 'kicked'):
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                channel_link = CHANNEL_ID if CHANNEL_ID.startswith('@') else f"https://t.me/{CHANNEL_ID}"
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📢 عضویت در کانال", url=f"https://t.me/{CHANNEL_ID.lstrip('@')}")],
+                    [InlineKeyboardButton(text="✅ عضو شدم", callback_data="check_join")]
+                ])
+                await message.answer(
+                    "⚠️ برای استفاده از ربات ابتدا باید عضو کانال ما بشی:\n\n"
+                    "بعد از عضویت دکمه «✅ عضو شدم» رو بزن.",
+                    reply_markup=kb
+                )
+                return
+        except Exception:
+            pass
 
     # Check referral
     referrer_id = None
@@ -268,6 +289,48 @@ async def photos_done_inline(callback: CallbackQuery, state: FSMContext):
         reply_markup=verification_optional_kb()
     )
     await state.clear()
+
+
+# ============ CHECK CHANNEL JOIN ============
+
+@router.callback_query(F.data == "check_join")
+async def check_join_callback(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if CHANNEL_ID:
+        try:
+            channel_id = int(CHANNEL_ID) if CHANNEL_ID.lstrip('-').isdigit() else CHANNEL_ID
+            member = await callback.bot.get_chat_member(channel_id, user_id)
+            if member.status in ('left', 'kicked'):
+                await callback.answer("❌ هنوز عضو کانال نشدی! اول جوین شو.", show_alert=True)
+                return
+        except Exception:
+            pass
+
+    await callback.answer("✅ عضویت تأیید شد!")
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    # Continue with /start flow
+    user = await db.get_user(user_id)
+    if not user:
+        code = await db.create_user(user_id)
+        await db.add_diamonds(user_id, SIGNUP_BONUS, 'signup', 'جایزه ثبت‌نام')
+        await callback.message.answer(
+            f"👋 به ربات EazyChat خوش اومدی!\n\n"
+            f"🎁 {SIGNUP_BONUS} الماس هدیه ثبت‌نام دریافت کردی!\n\n"
+            f"لطفاً شماره موبایلت رو ارسال کن:",
+            reply_markup=phone_kb()
+        )
+        await state.set_state(Registration.phone)
+    else:
+        step = user.get('registration_step', 'start')
+        if step == 'completed':
+            await state.clear()
+            await callback.message.answer("🏠 منوی اصلی", reply_markup=main_menu_kb())
+        else:
+            await callback.message.answer("ادامه ثبت‌نامت رو بده! /start رو بزن.")
 
 
 # NOTE: Verification handlers (start_verification, skip_verification, process_verification_video)

@@ -137,7 +137,8 @@ async def send_profile_card(message: Message, profile: dict, is_premium: bool = 
     purpose_map = {'dating': '👫 دوست‌یابی', 'fun': '🎉 گپ و گفتگو', 'marriage': '💍 همسریابی'}
 
     verified_badge = " ✅" if profile.get('is_verified') else ""
-    text = f"{gender_emoji} {profile['name']} ({profile['age']}){verified_badge} | Fa\n"
+    premium_badge = " 👑" if profile.get('is_premium') else ""
+    text = f"{gender_emoji} {profile['name']} ({profile['age']}){verified_badge}{premium_badge} | Fa\n"
     text += f"📍 {profile['province']}، {profile['city']}\n\n"
 
     # Info line like reference

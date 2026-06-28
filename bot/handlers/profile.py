@@ -28,10 +28,11 @@ async def view_profile(message: Message):
     photos = await db.get_photos(user_id)
 
     verified_badge = " ✅" if user['is_verified'] else ""
+    premium_badge = " 👑" if user['is_premium'] else ""
     gender_emoji = "👨" if user['gender'] == 'male' else "👩"
     purpose_map = {'dating': '💕 دوست‌یابی', 'fun': '🎉 سرگرمی', 'marriage': '💍 همسریابی'}
 
-    text = f"{gender_emoji} {user['name']} ({user['age']}){verified_badge} | Fa\n"
+    text = f"{gender_emoji} {user['name']} ({user['age']}){verified_badge}{premium_badge} | Fa\n"
     text += f"📍 {user['province']} - {user['city']}\n\n"
 
     # Extra info line
@@ -74,9 +75,10 @@ async def edit_profile_menu(callback: CallbackQuery):
     user = await db.get_user(callback.from_user.id)
     photos = await db.get_photos(callback.from_user.id)
     verified_badge = " ✅" if user['is_verified'] else ""
+    premium_badge = " 👑" if user['is_premium'] else ""
     gender_emoji = "👨" if user['gender'] == 'male' else "👩"
 
-    text = f"{gender_emoji} {user['name']} ({user['age']}){verified_badge}\n"
+    text = f"{gender_emoji} {user['name']} ({user['age']}){verified_badge}{premium_badge}\n"
     text += f"📍 {user['province']} - {user['city']}\n"
 
     if photos:

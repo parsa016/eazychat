@@ -329,12 +329,16 @@ def diamond_tasks_kb():
 
 
 def diamond_tasks_kb_checked(completed_types: set):
-    tasks = [
-        ("join_channel", "📢 جوین کانال رسمی (3 💎)", "task_join_channel"),
-        ("comment", "💬 کامنت زیر آخرین پست (4 💎)", "task_comment"),
-        ("react", "👍 ری‌اکشن به 5 پست اخیر (2 💎)", "task_react"),
-        ("sponsor", "📣 جوین کانال اسپانسر (6 💎)", "task_sponsor"),
-    ]
+    from config import CHANNEL_ID, SPONSOR_CHANNEL_ID
+
+    tasks = []
+    if CHANNEL_ID:
+        tasks.append(("join_channel", "📢 جوین کانال رسمی (3 💎)", "task_join_channel"))
+    tasks.append(("comment", "💬 کامنت زیر آخرین پست (4 💎)", "task_comment"))
+    tasks.append(("react", "👍 ری‌اکشن به 5 پست اخیر (2 💎)", "task_react"))
+    if SPONSOR_CHANNEL_ID:
+        tasks.append(("sponsor", "📣 جوین کانال اسپانسر (6 💎)", "task_sponsor"))
+
     buttons = []
     for task_type, label, callback_data in tasks:
         if task_type in completed_types:
