@@ -3,9 +3,9 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from bot.database import db
-from bot.states.registration import Profile, Registration, Report
+from bot.states.registration import Profile, Report
 from bot.keyboards.main_kb import (
-    my_profile_kb, main_menu_kb, diamonds_kb, verification_optional_kb,
+    my_profile_kb, main_menu_kb, diamonds_kb,
     edit_profile_kb, complete_profile_kb, interactions_kb,
     diamond_tasks_kb, explore_more_kb
 )
@@ -312,21 +312,7 @@ async def back_to_profile(callback: CallbackQuery):
     await callback.answer()
 
 
-# ============ START VERIFICATION FROM PROFILE ============
-
-@router.callback_query(F.data == "start_verification")
-async def start_verification_from_profile(callback: CallbackQuery, state: FSMContext):
-    user = await db.get_user(callback.from_user.id)
-    if user and user['is_verified']:
-        await callback.answer("✅ قبلاً احراز هویت کردی!", show_alert=True)
-        return
-    await state.set_state(Registration.verification_video)
-    await callback.message.answer(
-        "🎥 یه ویدیو مسیج بفرست و توش بگو:\n\n"
-        "«احراز هویت در ربات ایزی‌چت»\n\n"
-        "⚠️ صورتت باید مشخص باشه و شبیه عکس پروفایلت باشه."
-    )
-    await callback.answer()
+# NOTE: start_verification handler is in verification.py (single handler for both profile and registration)
 
 
 # ============ EDIT NAME ============
@@ -813,15 +799,24 @@ async def process_support_message(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
 
+    support_text = (
+        f"📞 پیام پشتیبانی جدید:\n\n"
+        f"👤 {user['name']} (ID: {user_id})\n"
+        f"📝 {message.text}\n\n"
+        f"برای پاسخ:\n/reply {user_id} متن پاسخ"
+    )
+
+    # Send to group first
+    if VERIFICATION_GROUP_ID:
+        try:
+            await message.bot.send_message(VERIFICATION_GROUP_ID, support_text)
+        except Exception:
+            pass
+
+    # Also send to admin DMs
     for admin_id in ADMIN_IDS:
         try:
-            await message.bot.send_message(
-                admin_id,
-                f"📞 پیام پشتیبانی جدید:\n\n"
-                f"👤 {user['name']} (ID: {user_id})\n"
-                f"📝 {message.text}\n\n"
-                f"برای پاسخ:\n/reply {user_id} متن پاسخ"
-            )
+            await message.bot.send_message(admin_id, support_text)
         except Exception:
             pass
 

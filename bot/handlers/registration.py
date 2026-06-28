@@ -1,5 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ContentType
+# ContentType still used for photo filter
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import CommandStart
 
@@ -11,7 +12,6 @@ from bot.keyboards.main_kb import (
 )
 from bot.data.cities import get_provinces, get_cities, is_valid_province, is_valid_city
 from config import ADMIN_IDS, VERIFICATION_GROUP_ID, SIGNUP_BONUS, PROFILE_COMPLETE_BONUS
-from bot.keyboards.main_kb import verification_admin_kb
 
 router = Router()
 
@@ -265,102 +265,5 @@ async def photos_done_inline(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
 
-# ============ VERIFICATION (Optional) ============
-
-@router.callback_query(F.data == "skip_verification")
-async def skip_verification(callback: CallbackQuery, state: FSMContext):
-    await db.update_user(callback.from_user.id, registration_step='purpose')
-    await callback.message.edit_text(
-        "⏭️ احراز هویت رد شد.\n"
-        "⚠️ بدون احراز هویت نمی‌تونی لایک‌ها و مچ‌هات رو ببینی.\n"
-        "هر وقت خواستی از بخش پروفایل می‌تونی انجام بدی.\n\n"
-        "🎯 حالا هدفت از اومدن تو ربات رو انتخاب کن:",
-        reply_markup=purpose_kb()
-    )
-
-
-@router.callback_query(F.data == "start_verification")
-async def start_verification(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(Registration.verification_video)
-    await callback.message.edit_text(
-        "🎥 یه ویدیو مسیج بفرست و توش بگو:\n\n"
-        "«احراز هویت در ربات ایزی‌چت»\n\n"
-        "⚠️ صورتت باید مشخص باشه."
-    )
-
-
-# ============ VERIFICATION VIDEO ============
-
-@router.message(Registration.verification_video, F.content_type.in_({ContentType.VIDEO, ContentType.VIDEO_NOTE}))
-async def process_verification_video(message: Message, state: FSMContext):
-    if message.content_type == ContentType.VIDEO:
-        file_id = message.video.file_id
-    else:
-        file_id = message.video_note.file_id
-
-    user_id = message.from_user.id
-    verification_id = await db.create_verification(user_id, file_id)
-    await db.update_user(user_id, registration_step='waiting_verification')
-
-    # Send to verification group or admins
-    user = await db.get_user(user_id)
-    photos = await db.get_photos(user_id)
-    text = (
-        f"🔍 درخواست احراز هویت جدید:\n\n"
-        f"👤 {user['name']}\n"
-        f"🆔 ID: {user_id}\n"
-        f"🎂 سن: {user['age']}\n"
-        f"📍 {user['province']}، {user['city']}"
-    )
-
-    if VERIFICATION_GROUP_ID:
-        if photos:
-            await message.bot.send_photo(
-                VERIFICATION_GROUP_ID, photos[0]['file_id'],
-                caption=text
-            )
-        if message.content_type == ContentType.VIDEO:
-            await message.bot.send_video(
-                VERIFICATION_GROUP_ID, file_id,
-                caption="ویدیو احراز هویت 👆",
-                reply_markup=verification_admin_kb(user_id, verification_id)
-            )
-        else:
-            await message.bot.send_video_note(VERIFICATION_GROUP_ID, file_id)
-            await message.bot.send_message(
-                VERIFICATION_GROUP_ID,
-                "ویدیو احراز هویت 👆",
-                reply_markup=verification_admin_kb(user_id, verification_id)
-            )
-    else:
-        for admin_id in ADMIN_IDS:
-            try:
-                if photos:
-                    await message.bot.send_photo(admin_id, photos[0]['file_id'], caption=text)
-                if message.content_type == ContentType.VIDEO:
-                    await message.bot.send_video(
-                        admin_id, file_id,
-                        caption="ویدیو احراز هویت 👆",
-                        reply_markup=verification_admin_kb(user_id, verification_id)
-                    )
-                else:
-                    await message.bot.send_video_note(admin_id, file_id)
-                    await message.bot.send_message(
-                        admin_id,
-                        "ویدیو احراز هویت 👆",
-                        reply_markup=verification_admin_kb(user_id, verification_id)
-                    )
-            except Exception:
-                pass
-
-    await message.answer(
-        "✅ ویدیو احراز هویتت ارسال شد!\n"
-        "⏳ منتظر بررسی ادمین باش. بعد از تأیید بهت اطلاع میدیم.",
-        reply_markup=remove_kb()
-    )
-    await state.clear()
-
-
-@router.message(Registration.verification_video)
-async def process_verification_invalid(message: Message):
-    await message.answer("❌ لطفاً یه ویدیو مسیج (Video Note) یا ویدیو بفرست!")
+# NOTE: Verification handlers (start_verification, skip_verification, process_verification_video)
+# are all in verification.py to avoid duplicate handler conflicts.

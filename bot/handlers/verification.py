@@ -106,3 +106,166 @@ async def process_rejection_reason(message: Message, state: FSMContext):
 
     await message.answer("✅ رد شد. کاربر مطلع شد.")
     await state.clear()
+
+
+# ============ START VERIFICATION (from profile or registration) ============
+
+@router.callback_query(F.data == "start_verification")
+async def start_verification(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user = await db.get_user(user_id)
+
+    # Already verified
+    if user and user['is_verified']:
+        await callback.answer("✅ قبلاً احراز هویت کردی!", show_alert=True)
+        return
+
+    # Check pending
+    pending = await db.fetchone(
+        "SELECT id FROM verifications WHERE user_id = %s AND status = 'pending'",
+        (user_id,)
+    )
+    if pending:
+        await callback.answer("⏳ درخواست قبلیت هنوز در حال بررسیه! صبر کن.", show_alert=True)
+        return
+
+    await state.set_state(Registration.verification_video)
+    try:
+        await callback.message.answer(
+            "🎥 یه ویدیو مسیج بفرست و توش بگو:\n\n"
+            "«احراز هویت در ربات ایزی‌چت»\n\n"
+            "⚠️ صورتت باید مشخص باشه و شبیه عکس پروفایلت باشه."
+        )
+    except Exception:
+        pass
+    await callback.answer()
+
+
+# ============ SKIP VERIFICATION ============
+
+@router.callback_query(F.data == "skip_verification")
+async def skip_verification(callback: CallbackQuery, state: FSMContext):
+    await db.update_user(callback.from_user.id, registration_step='purpose')
+    try:
+        await callback.message.edit_text(
+            "⏭️ احراز هویت رد شد.\n"
+            "⚠️ بدون احراز هویت نمی‌تونی لایک‌ها و مچ‌هات رو ببینی.\n"
+            "هر وقت خواستی از بخش پروفایل می‌تونی انجام بدی.\n\n"
+            "🎯 حالا هدفت از اومدن تو ربات رو انتخاب کن:",
+            reply_markup=purpose_kb()
+        )
+    except Exception:
+        await callback.message.answer(
+            "⏭️ احراز هویت رد شد.\n"
+            "⚠️ بدون احراز هویت نمی‌تونی لایک‌ها و مچ‌هات رو ببینی.\n\n"
+            "🎯 حالا هدفت از اومدن تو ربات رو انتخاب کن:",
+            reply_markup=purpose_kb()
+        )
+    await state.clear()
+
+
+# ============ VERIFICATION VIDEO ============
+
+@router.message(Registration.verification_video, F.video | F.video_note)
+async def process_verification_video(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+
+    # Check pending
+    pending = await db.fetchone(
+        "SELECT id FROM verifications WHERE user_id = %s AND status = 'pending'",
+        (user_id,)
+    )
+    if pending:
+        await message.answer("⏳ درخواست قبلیت هنوز در حال بررسیه! صبر کن.")
+        await state.clear()
+        return
+
+    if message.video:
+        file_id = message.video.file_id
+    elif message.video_note:
+        file_id = message.video_note.file_id
+    else:
+        await message.answer("❌ خطایی رخ داد! دوباره تلاش کنید.")
+        return
+
+    verification_id = await db.create_verification(user_id, file_id)
+    await db.update_user(user_id, registration_step='waiting_verification')
+
+    # Send to verification group or admins
+    user = await db.get_user(user_id)
+    photos = await db.get_photos(user_id)
+    text = (
+        f"🔍 درخواست احراز هویت جدید:\n\n"
+        f"👤 نام: {user['name']}\n"
+        f"🆔 ID: {user_id}\n"
+        f"📱 شماره: {user.get('phone') or 'ندارد'}\n"
+        f"🎂 سن: {user['age']}\n"
+        f"👤 جنسیت: {'مرد' if user['gender'] == 'male' else 'زن'}\n"
+        f"📍 {user['province']}، {user['city']}"
+    )
+
+    target = VERIFICATION_GROUP_ID if VERIFICATION_GROUP_ID else None
+
+    if target:
+        # Send photos
+        if photos:
+            for photo in photos[:3]:
+                try:
+                    await message.bot.send_photo(target, photo['file_id'])
+                except Exception:
+                    pass
+
+        # Send info text
+        await message.bot.send_message(target, text)
+
+        # Send video
+        if message.video:
+            await message.bot.send_video(
+                target, file_id,
+                caption="🎥 ویدیو احراز هویت 👆",
+                reply_markup=verification_admin_kb(user_id, verification_id)
+            )
+        else:
+            await message.bot.send_video_note(target, file_id)
+            await message.bot.send_message(
+                target,
+                "🎥 ویدیو احراز هویت 👆",
+                reply_markup=verification_admin_kb(user_id, verification_id)
+            )
+    else:
+        for admin_id in ADMIN_IDS:
+            try:
+                if photos:
+                    for photo in photos[:3]:
+                        await message.bot.send_photo(admin_id, photo['file_id'])
+                await message.bot.send_message(admin_id, text)
+                if message.video:
+                    await message.bot.send_video(
+                        admin_id, file_id,
+                        caption="🎥 ویدیو احراز هویت 👆",
+                        reply_markup=verification_admin_kb(user_id, verification_id)
+                    )
+                else:
+                    await message.bot.send_video_note(admin_id, file_id)
+                    await message.bot.send_message(
+                        admin_id,
+                        "🎥 ویدیو احراز هویت 👆",
+                        reply_markup=verification_admin_kb(user_id, verification_id)
+                    )
+            except Exception:
+                pass
+
+    await message.answer(
+        "✅ ویدیو احراز هویتت ارسال شد!\n"
+        "⏳ منتظر بررسی ادمین باش. بعد از تأیید بهت اطلاع میدیم.",
+        reply_markup=main_menu_kb()
+    )
+    await state.clear()
+
+
+@router.message(Registration.verification_video)
+async def process_verification_invalid(message: Message):
+    await message.answer(
+        "❌ لطفاً یه ویدیو مسیج (دایره‌ای) یا ویدیو معمولی بفرست!\n"
+        "⚠️ فقط فرمت ویدیو قبول می‌شه (عکس، متن و فایل قبول نیست)."
+    )
